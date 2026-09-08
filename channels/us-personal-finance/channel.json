@@ -1,0 +1,16 @@
+{
+  "slug": "us-personal-finance",
+  "displayName": "<chưa chốt>",
+  "genre": "data-explainer",
+  "engineVersion": "0.1.0",
+  "market": "US",
+  "language": "en-US",
+  "distributionPhase": "phase-0",
+  "cadencePerMonth": 10,
+  "faceless": true,
+  "status": "pre-launch",
+  "googleAccount": "<tách biệt với các kênh khác>",
+  "ttsVoiceId": "<chọn một, không bao giờ đổi>",
+  "pillars": ["housing", "debt", "investing", "career-income", "retirement"],
+  "notes": "spending-psychology đã bỏ: RPM thấp nhất và phụ thuộc văn hoá nhất"
+}

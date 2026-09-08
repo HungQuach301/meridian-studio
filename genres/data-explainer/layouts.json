@@ -1,0 +1,18 @@
+{
+  "genre": "data-explainer",
+  "note": "Danh sách layout ĐÓNG cho thể loại này. Visual Director chỉ được chọn trong đây. Genre Pack khác có danh sách khác. Trước đây danh sách này nằm trong engine/contracts/storyboard.schema.json — đã chuyển xuống đây vì nó là giả định về thể loại.",
+  "layouts": [
+    {"id": "title-card", "variants": ["a","b"], "wave": 2},
+    {"id": "bar-chart", "variants": ["a","b","c"], "wave": 2},
+    {"id": "line-chart", "variants": ["a","b"], "wave": 2},
+    {"id": "threshold-matrix", "variants": ["a","b"], "wave": 2, "core": true},
+    {"id": "two-roads", "variants": ["a","b"], "wave": 2, "core": true},
+    {"id": "timeline", "variants": ["a","b"], "wave": 4},
+    {"id": "two-column-compare", "variants": ["a","b"], "wave": 4},
+    {"id": "cashflow-diagram", "variants": ["a","b"], "wave": 4},
+    {"id": "quote-card", "variants": ["a"], "wave": 4},
+    {"id": "doodle-transition", "variants": ["a","b","c"], "wave": 4, "maxPerEpisode": 8},
+    {"id": "stock-fullbleed", "variants": ["a"], "wave": 4},
+    {"id": "outro", "variants": ["a"], "wave": 4}
+  ]
+}
