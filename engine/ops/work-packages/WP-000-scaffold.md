@@ -27,8 +27,10 @@ toàn bộ `engine/contracts/*.schema.json`
 ## 4. Files in scope
 ```
 package.json
+package-lock.json
 tsconfig.json
 scripts/validate-schemas.ts
+scripts/validate-schemas.test.ts
 pipeline/state.json
 .github/workflows/ci.yml
 ```
