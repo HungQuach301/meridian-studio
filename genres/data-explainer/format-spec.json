@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0",
+  "derivedFrom": "portfolio/references/anhbataichinh/teardown.md",
+  "note": "Cấu trúc và thiết bị nội dung được rút ra từ teardown kênh tham chiếu, đã bản địa hoá cho thị trường Mỹ. Scriptwriter BẮT BUỘC tuân thủ.",
+  "structure": {
+    "description": "7 mốc bắt buộc, đúng thứ tự.",
+    "marks": [
+      {
+        "id": "M1",
+        "name": "cold-open",
+        "windowSec": [
+          0,
+          15
+        ],
+        "required": true,
+        "rules": [
+          "Mở bằng một CẢNH cụ thể, không phải một khái niệm.",
+          "Bắt buộc có: tên riêng, tuổi, nghề, và một con số chính xác đến hàng đơn vị.",
+          "Có thể thay bằng một thống kê gây sốc, nhưng vẫn phải có con số cụ thể.",
+          "Cấm: chào hỏi, giới thiệu kênh, 'in today's video'."
+        ],
+        "example": "2:45 AM. Marcus, 34, a QA lead in Austin, watches his phone light up: $3,240 auto-debited."
+      },
+      {
+        "id": "M2",
+        "name": "identity",
+        "windowSec": [
+          15,
+          22
+        ],
+        "required": true,
+        "rules": [
+          "Một câu xưng danh ngắn, cố định giữa các tập."
+        ]
+      },
+      {
+        "id": "M3",
+        "name": "promise-and-open-loop",
+        "windowSec": [
+          22,
+          35
+        ],
+        "required": true,
+        "rules": [
+          "Nêu rõ điều người xem sẽ mang về.",
+          "Cài một vòng lặp mở: điều sẽ tiết lộ ở cuối video.",
+          "Disclaimer KHÔNG đọc thành tiếng — hiển thị card 3 giây. Xem compliance.md."
+        ]
+      },
+      {
+        "id": "M4",
+        "name": "body-beats",
+        "beatCount": [
+          5,
+          8
+        ],
+        "required": true,
+        "rules": [
+          "Mỗi beat kết bằng một CẦU NỐI TÒ MÒ sang beat sau. Cấm kết trung tính.",
+          "Beat 1-2 dựng vấn đề và bóc chi phí ẩn.",
+          "Beat giữa chứa ma trận ngưỡng — trọng tâm của tập.",
+          "Beat cuối là hai ngã rẽ."
+        ]
+      },
+      {
+        "id": "M5",
+        "name": "mid-cta",
+        "positionPct": 42,
+        "required": true,
+        "rules": [
+          "Đặt đúng ranh giới giữa hai beat, không cắt ngang mạch.",
+          "CTA phải là hành động một chạm (bình luận một chữ, một số).",
+          "Cấm CTA kép trong cùng một tập."
+        ]
+      },
+      {
+        "id": "M6",
+        "name": "hard-rules",
+        "required": true,
+        "rules": [
+          "2-4 quy tắc định lượng người xem mang về.",
+          "Mỗi quy tắc phải có con số, không được chung chung."
+        ]
+      },
+      {
+        "id": "M7",
+        "name": "closing-loop",
+        "required": true,
+        "rules": [
+          "Quay lại ĐÚNG nhân vật của cold-open, cùng bối cảnh, khác tâm thế.",
+          "Đóng vòng lặp mở đã cài ở M3.",
+          "Kết bằng câu sign-off cố định."
+        ]
+      }
+    ]
+  },
+  "devices": {
+    "description": "6 thiết bị nội dung. Script phải dùng ĐỦ CẢ 6.",
+    "items": [
+      {
+        "id": "named-character",
+        "name": "Nhân vật đơn danh có hồ sơ",
+        "rule": "Không bao giờ nói 'many people'. Luôn là một người có tên, tuổi, nghề, thu nhập, thành phố.",
+        "mustDeclareComposite": true
+      },
+      {
+        "id": "money-to-time",
+        "name": "Quy đổi tiền ra thời gian sống",
+        "rule": "Lấy con số tiền, quy đổi tuần tự sang: % thu nhập → số ngày làm việc/tháng → tổng số tháng. Nói lại cùng một con số bằng 3-4 đơn vị khác nhau, mỗi lần cụ thể hơn.",
+        "minRestatements": 3
+      },
+      {
+        "id": "threshold-matrix",
+        "name": "Ma trận ngưỡng",
+        "rule": "Chia vấn đề thành ĐÚNG 3 ngưỡng định lượng. Mỗi ngưỡng có: điều kiện, con số hàng tháng tính từ dữ liệu thật, so sánh với phương án thay thế, và một phán quyết.",
+        "tiers": 3,
+        "requiresClaimIds": true
+      },
+      {
+        "id": "absolve-viewer",
+        "name": "Miễn tội cho người xem",
+        "rule": "Nói rõ lỗi không nằm ở người xem, rồi chỉ mặt cơ chế hệ thống gây ra (marketing, cấu trúc sản phẩm, áp lực so sánh). Đặt ngay sau đoạn gây đau nhất.",
+        "placement": "after-hardest-beat"
+      },
+      {
+        "id": "two-roads",
+        "name": "Hai ngã rẽ sau N năm",
+        "rule": "Hai nhân vật cùng điểm xuất phát, một người hành động bốc đồng, một người có kỷ luật. N thường là 3-5 năm. Kết cục phải cụ thể bằng số.",
+        "yearsRange": [
+          3,
+          5
+        ]
+      },
+      {
+        "id": "lexicon",
+        "name": "Từ vựng sở hữu",
+        "rule": "Dùng ít nhất 3 thuật ngữ trong channels/us-personal-finance/lexicon.md. Lặp lại giữa các tập để xây thương hiệu tư tưởng.",
+        "minTerms": 3
+      }
+    ]
+  },
+  "pacing": {
+    "wordsPerMinute": [
+      145,
+      160
+    ],
+    "targetWordCount": [
+      3200,
+      3600
+    ],
+    "maxSentenceWords": 28,
+    "chapterCount": [
+      6,
+      8
+    ]
+  },
+  "prohibitions": [
+    "Không đọc disclaimer thành tiếng trong 60 giây đầu.",
+    "Không xướng tên chương thành tiếng ('Part One...'). Dùng chapter marker im lặng.",
+    "Không dịch từ tiếng Việt.",
+    "Không dùng cơ chế tài chính Việt Nam trong bối cảnh Mỹ.",
+    "Không dùng con số không có claimId trong sources.json."
+  ]
+}

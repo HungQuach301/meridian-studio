@@ -1,0 +1,30 @@
+{
+  "channel": "us-personal-finance",
+  "note": "Palette và font là THEO KÊNH, không theo genre — để ba kênh không trông giống nhau (rủi ro lan danh mục). Chart grammar và motion rules vẫn ở genres/*/visual-system.md.",
+  "palette": {
+    "ink": "#12161C",
+    "paper": "#F7F5F0",
+    "accent": "#D93025",
+    "positive": "#1E7A4C",
+    "neutral": "#5B6470",
+    "highlight": "#E8B93B",
+    "surface": "#FFFFFF"
+  },
+  "typography": {
+    "family": "Inter",
+    "numeric": "Inter Tight",
+    "weights": {
+      "title": 800,
+      "section": 700,
+      "body": 500,
+      "caption": 400
+    }
+  },
+  "ttsVoiceId": "<chọn một, KHÔNG BAO GIỜ đổi — với kênh faceless, giọng chính là nhân dạng>",
+  "musicMood": "minimal-analytical",
+  "lightDirection": "top-left",
+  "generatedImageStyle": {
+    "prompt_suffix": "<ĐIỀN một cụm phong cách cố định cho kênh này, ví dụ: 'muted editorial illustration, soft grain, cool blue-grey palette'>",
+    "note": "Mỗi kênh MỘT phong cách ảnh sinh, không đổi. Ba kênh phải khác nhau rõ rệt — đây là một phần của tách nhận diện chống rủi ro lan danh mục."
+  }
+}

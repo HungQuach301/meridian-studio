@@ -1,0 +1,26 @@
+{
+  "genre": "data-explainer",
+  "stockRatioMax": 0.15,
+  "generatedImageAllowed": true,
+  "generatedImageRules": [
+    "CHỈ dùng làm nền trừu tượng hoặc texture",
+    "KHÔNG BAO GIỜ chứa chữ hoặc số — model sinh viết sai chữ và bịa số",
+    "Không làm nội dung chính của bất kỳ scene nào",
+    "Phải dùng prompt_suffix cố định của kênh trong channels/{slug}/visual-tokens.json — không tự chọn phong cách"
+  ],
+  "generativeVideoAllowed": false,
+  "generativeVideoReason": "Xem ADR-0002. Không deterministic, không thể hiện đúng số liệu.",
+  "chartRequired": true,
+  "mapRequired": false,
+  "realFootageRequired": false,
+  "bannedStockCategories": [
+    "bắt tay",
+    "chỉ vào laptop",
+    "đồng xu rơi",
+    "bóng đèn ý tưởng",
+    "cầu thang thành công",
+    "đồ thị mờ ảo"
+  ],
+  "assetProvenanceRequired": true,
+  "assetProvenanceNote": "Mọi asset sinh phải lưu prompt và seed để tái lập được"
+}
