@@ -1,0 +1,12 @@
+node_modules/
+.env
+.env.*
+dist/
+out/
+*.mp4
+*.mov
+*.wav
+*.mp3
+.DS_Store
+episodes/*/assets/
+episodes/*/render/
