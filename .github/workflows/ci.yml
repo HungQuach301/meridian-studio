@@ -1,0 +1,94 @@
+name: WP-000 acceptance
+
+# Owner-approved exception: run acceptance on Actions before opening the WP-000 PR.
+on:
+  push:
+    branches:
+      - wp/WP-000-scaffold
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the pushed commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node 20
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+
+      - name: Verify runtime and source
+        run: |
+          node --version
+          npm --version
+          node -e "if (process.versions.node.split('.')[0] !== '20') process.exit(1)"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git rev-parse HEAD
+
+      - name: Install the declared dependencies
+        run: npm install --package-lock=false
+
+      - name: Validate the empty pipeline state
+        run: npm run validate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run the scaffold test command
+        run: npm run test
+
+      - name: Reject invalid state and restore the original bytes
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { createHash } from 'node:crypto';
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import { spawnSync } from 'node:child_process';
+
+          const path = 'pipeline/state.json';
+          const original = readFileSync(path);
+          const invalid = JSON.parse(original.toString('utf8'));
+          assert.deepEqual(invalid.episodes, []);
+          delete invalid.episodes;
+
+          try {
+            writeFileSync(path, JSON.stringify(invalid));
+            const result = spawnSync('npm', ['run', 'validate'], { encoding: 'utf8' });
+            assert.ifError(result.error);
+            process.stdout.write(result.stdout);
+            process.stderr.write(result.stderr);
+            assert.equal(result.status, 1, 'Invalid state must exit with status 1');
+            assert.match(
+              result.stdout + result.stderr,
+              /FAIL pipeline\/state\.json:.*required property 'episodes'/,
+            );
+            console.log('PASS negative test: missing episodes rejected with exit 1');
+          } finally {
+            writeFileSync(path, original);
+            assert.deepEqual(readFileSync(path), original);
+            console.log('PASS state restored byte-for-byte');
+            console.log('State SHA-256: ' + createHash('sha256').update(original).digest('hex'));
+          }
+          NODE
+
+      - name: Validate the restored state
+        run: npm run validate
+
+      - name: Verify the checkout remains unchanged
+        if: always()
+        run: |
+          git diff --exit-code
+          test -z "$(git ls-files --others --exclude-standard)"
+          test ! -e package-lock.json
+          test ! -e src
+          echo "PASS tracked files unchanged; no untracked files, package-lock.json, or src"
