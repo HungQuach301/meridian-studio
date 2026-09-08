@@ -36,23 +36,6 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git rev-parse HEAD
 
-      # Temporary bootstrap: npm generates the first lockfile on Node 20.
-      - name: Generate the initial lockfile
-        run: npm install --package-lock-only --ignore-scripts
-
-      - name: Record the generated lockfile
-        run: |
-          node --input-type=module <<'NODE'
-          import { readFileSync } from 'node:fs';
-          import { createHash } from 'node:crypto';
-          const lock = readFileSync('package-lock.json');
-          const encoded = lock.toString('base64');
-          console.log('WP000_LOCK_SHA256 ' + createHash('sha256').update(lock).digest('hex'));
-          for (let offset = 0; offset < encoded.length; offset += 4096) {
-            console.log('WP000_LOCK_CHUNK ' + encoded.slice(offset, offset + 4096));
-          }
-          NODE
-
       - name: Install locked dependencies
         run: npm ci
 
@@ -78,13 +61,15 @@ jobs:
       - name: Validate repository JSON
         run: npm run validate
 
-      - name: Verify tracked source files remain unchanged
+      - name: Verify source files remain unchanged
         if: always()
         run: |
           git diff --exit-code
           git diff --cached --exit-code
+          test -z "$(git ls-files --others --exclude-standard)"
           test ! -e src
           sha256sum pipeline/state.json package-lock.json
+          echo "PASS source files unchanged; no untracked files or src"
 
   typecheck:
     runs-on: ubuntu-24.04
@@ -108,20 +93,18 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git rev-parse HEAD
 
-      # Temporary bootstrap: npm generates the first lockfile on Node 20.
-      - name: Generate the initial lockfile
-        run: npm install --package-lock-only --ignore-scripts
-
       - name: Install locked dependencies
         run: npm ci
 
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Verify tracked source files remain unchanged
+      - name: Verify source files remain unchanged
         if: always()
         run: |
           git diff --exit-code
           git diff --cached --exit-code
+          test -z "$(git ls-files --others --exclude-standard)"
           test ! -e src
           sha256sum pipeline/state.json package-lock.json
+          echo "PASS source files unchanged; no untracked files or src"
