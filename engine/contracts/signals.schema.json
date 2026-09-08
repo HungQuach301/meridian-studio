@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "meridian/signals.schema.json",
+  "title": "Signals and Ranked Topics",
+  "type": "object",
+  "required": ["generatedAt", "signals"],
+  "properties": {
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "signals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["signalId", "text", "origin", "sourceUrl"],
+        "properties": {
+          "signalId": { "type": "string" },
+          "text": { "type": "string" },
+          "origin": { "type": "string", "enum": ["macro-release", "search-trend", "competitor-gap", "own-insight"] },
+          "sourceUrl": { "type": "string", "format": "uri" },
+          "freshnessDays": { "type": "integer" }
+        }
+      }
+    },
+    "ranked": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["topic", "score", "rationale", "thresholdMatrixFeasible"],
+        "properties": {
+          "topic": { "type": "string" },
+          "score": { "type": "number", "minimum": 0, "maximum": 100 },
+          "demand": { "type": "number" },
+          "saturation": { "type": "number" },
+          "bibleFit": { "type": "number" },
+          "thresholdMatrixFeasible": { "type": "boolean", "description": "false thì loại — không dựng được ma trận ngưỡng" },
+          "rationale": { "type": "string" }
+        }
+      }
+    }
+  }
+}

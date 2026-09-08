@@ -1,0 +1,276 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "meridian/render-manifest.schema.json",
+  "title": "Render Manifest",
+  "type": "object",
+  "required": [
+    "episodeId",
+    "chunks",
+    "output"
+  ],
+  "properties": {
+    "episodeId": {
+      "type": "string"
+    },
+    "chunks": {
+      "type": "array",
+      "description": "Nhóm scene render song song trong Actions matrix.",
+      "items": {
+        "type": "object",
+        "required": [
+          "chunkId",
+          "sceneIds"
+        ],
+        "properties": {
+          "chunkId": {
+            "type": "string"
+          },
+          "sceneIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "rendering",
+              "done",
+              "failed"
+            ]
+          },
+          "artifactUrl": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "required": [
+        "width",
+        "height",
+        "fps"
+      ],
+      "properties": {
+        "width": {
+          "type": "integer",
+          "const": 1920
+        },
+        "height": {
+          "type": "integer",
+          "const": 1080
+        },
+        "fps": {
+          "type": "integer",
+          "const": 30
+        },
+        "releaseTag": {
+          "type": "string",
+          "pattern": "^ep/"
+        },
+        "assetUrl": {
+          "type": "string"
+        }
+      }
+    },
+    "qa": {
+      "type": "object",
+      "properties": {
+        "durationMs": {
+          "type": "integer"
+        },
+        "loudnessLufs": {
+          "type": "number"
+        },
+        "captionDriftMaxMs": {
+          "type": "integer",
+          "maximum": 200
+        },
+        "blackFrames": {
+          "type": "integer",
+          "maximum": 0
+        },
+        "safeAreaViolations": {
+          "type": "integer",
+          "maximum": 0
+        },
+        "verdict": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "fail"
+          ]
+        },
+        "visualScore": {
+          "type": "object",
+          "required": [
+            "sampled",
+            "passed"
+          ],
+          "properties": {
+            "sampled": {
+              "type": "integer",
+              "const": 10
+            },
+            "passed": {
+              "type": "integer",
+              "minimum": 8,
+              "description": "Dưới 8/10 thì verdict phải là fail."
+            },
+            "failures": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "frameMs": {
+                    "type": "integer"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "motionScore": {
+          "type": "object",
+          "required": [
+            "powerpointTest",
+            "threeSecondTest",
+            "mutedTest",
+            "onScreenWordRatio"
+          ],
+          "properties": {
+            "powerpointTest": {
+              "type": "string",
+              "enum": [
+                "pass",
+                "fail"
+              ]
+            },
+            "threeSecondTest": {
+              "type": "object",
+              "properties": {
+                "windowsSampled": {
+                  "type": "integer",
+                  "const": 5
+                },
+                "withMotion": {
+                  "type": "integer",
+                  "minimum": 5
+                },
+                "withCameraMove": {
+                  "type": "integer",
+                  "minimum": 2
+                }
+              }
+            },
+            "mutedTest": {
+              "type": "string",
+              "enum": [
+                "pass",
+                "fail"
+              ]
+            },
+            "onScreenWordRatio": {
+              "type": "number",
+              "maximum": 0.22
+            },
+            "staticFrameMaxMs": {
+              "type": "integer",
+              "maximum": 400
+            },
+            "durationStdDevRatio": {
+              "type": "number",
+              "minimum": 0.4,
+              "description": "Độ lệch chuẩn thời lượng scene / trung bình. Dưới 0.4 là nhịp đều như slide."
+            },
+            "shotSizeMix": {
+              "type": "object",
+              "properties": {
+                "wide": {
+                  "type": "number"
+                },
+                "medium": {
+                  "type": "number"
+                },
+                "close": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        },
+        "rootCauseStage": {
+          "type": "string",
+          "description": "Bắt buộc khi verdict=fail. Pipeline chạy lại từ stage này."
+        },
+        "soundScore": {
+          "type": "object",
+          "properties": {
+            "sfxSyncMaxDriftMs": {
+              "type": "integer",
+              "maximum": 60
+            },
+            "sfxDensity": {
+              "type": "number",
+              "minimum": 0.3,
+              "maximum": 0.4
+            },
+            "silenceBeforeKeyNumber": {
+              "type": "boolean",
+              "const": true
+            },
+            "musicLufs": {
+              "type": "number",
+              "maximum": -20
+            }
+          }
+        }
+      }
+    },
+    "proofRender": {
+      "type": "object",
+      "description": "S11.5 — 12 ảnh tĩnh + 1 clip 15 giây. BẮT BUỘC pass trước khi render đầy đủ.",
+      "required": [
+        "stills",
+        "clipSec",
+        "verdict"
+      ],
+      "properties": {
+        "stills": {
+          "type": "integer",
+          "const": 12
+        },
+        "clipSec": {
+          "type": "integer",
+          "const": 15
+        },
+        "visualScore": {
+          "type": "object",
+          "properties": {
+            "sampled": {
+              "type": "integer"
+            },
+            "passed": {
+              "type": "integer"
+            }
+          }
+        },
+        "verdict": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "fail"
+          ]
+        },
+        "rootCauseStage": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

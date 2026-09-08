@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "meridian/factcheck.schema.json",
+  "title": "Fact-check Report",
+  "description": "Kết quả đối chất. Có bất kỳ mục nào status=red thì pipeline PHẢI dừng.",
+  "type": "object",
+  "required": ["episodeId", "verdict", "findings"],
+  "properties": {
+    "episodeId": { "type": "string" },
+    "verdict": { "type": "string", "enum": ["pass", "warn", "block"] },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["claimId", "status", "reason"],
+        "properties": {
+          "claimId": { "type": "string" },
+          "status": { "type": "string", "enum": ["green", "yellow", "red"] },
+          "reason": { "type": "string" },
+          "ymylRisk": {
+            "type": "string",
+            "enum": ["none", "advice-like", "guarantee-like", "prohibited"],
+            "description": "advice-like trở lên phải viết lại câu đó"
+          },
+          "suggestedRewrite": { "type": "string" }
+        }
+      }
+    }
+  }
+}

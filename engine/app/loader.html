@@ -1,0 +1,71 @@
+<!-- Dán MỘT LẦN vào ChatGPT Sites. Sau đó không bao giờ dán lại. -->
+<!-- Mọi thay đổi UI về sau chỉ là commit app/cockpit.js lên GitHub. -->
+<div id="meridian-root">
+  <div id="meridian-gate" style="font-family:system-ui;max-width:420px;margin:64px auto;padding:24px">
+    <h2 style="margin:0 0 8px">Meridian Cockpit</h2>
+    <p style="color:#5B6470;font-size:14px;margin:0 0 16px">
+      Nhập fine-grained PAT (chỉ repo meridian-studio, quyền Contents + Actions).
+      Token chỉ nằm trong phiên trình duyệt này.
+    </p>
+    <input id="meridian-pat" type="password" placeholder="github_pat_..."
+           style="width:100%;padding:10px;border:1px solid #5B6470;border-radius:6px;font-size:14px">
+    <button id="meridian-go"
+            style="margin-top:12px;width:100%;padding:10px;border:0;border-radius:6px;
+                   background:#12161C;color:#F7F5F0;font-size:14px;cursor:pointer">
+      Mở cockpit
+    </button>
+    <pre id="meridian-err" style="color:#D93025;font-size:12px;white-space:pre-wrap;margin-top:12px"></pre>
+  </div>
+</div>
+
+<script>
+(function () {
+  var OWNER = "REPLACE_OWNER";      // <-- điền username GitHub
+  var REPO  = "meridian-studio";
+  var PATH  = "app/cockpit.js";
+  var BRANCH = "main";
+
+  var err = document.getElementById("meridian-err");
+
+  document.getElementById("meridian-go").onclick = function () {
+    var pat = document.getElementById("meridian-pat").value.trim();
+    if (!pat) { err.textContent = "Chưa nhập token."; return; }
+    err.textContent = "Đang tải cockpit...";
+
+    var url = "https://api.github.com/repos/" + OWNER + "/" + REPO +
+              "/contents/" + PATH + "?ref=" + BRANCH + "&t=" + Date.now();
+
+    fetch(url, {
+      headers: {
+        Authorization: "Bearer " + pat,
+        Accept: "application/vnd.github.v3+json"
+      }
+    })
+    .then(function (r) {
+      if (!r.ok) throw new Error("GitHub API " + r.status + " — kiểm tra token và quyền repo.");
+      return r.json();
+    })
+    .then(function (j) {
+      var code = decodeURIComponent(escape(atob(j.content.replace(/\n/g, ""))));
+      window.MERIDIAN_PAT = pat;
+      window.MERIDIAN_CFG = { owner: OWNER, repo: REPO, branch: BRANCH };
+      // Cách 1: Function constructor
+      try {
+        new Function(code)();
+        return;
+      } catch (e1) {
+        // Cách 2: chèn thẻ script inline
+        var s = document.createElement("script");
+        s.textContent = code;
+        document.body.appendChild(s);
+      }
+    })
+    .catch(function (e) {
+      err.textContent =
+        "LỖI: " + e.message +
+        "\n\nNếu lỗi nhắc tới Content Security Policy hoặc 'unsafe-eval', " +
+        "nghĩa là ChatGPT Sites chặn nạp mã động. Chuyển sang Phương án B (iframe -> GitHub Pages).";
+    });
+  };
+})();
+</script>

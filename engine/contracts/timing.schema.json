@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "meridian/timing.schema.json",
+  "title": "VO Timing",
+  "type": "object",
+  "required": ["episodeId", "audioDurationMs", "words"],
+  "properties": {
+    "episodeId": { "type": "string" },
+    "audioDurationMs": { "type": "integer" },
+    "loudnessLufs": { "type": "number", "maximum": -13, "minimum": -15 },
+    "words": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["word", "startMs", "endMs"],
+        "properties": {
+          "word": { "type": "string" },
+          "startMs": { "type": "integer" },
+          "endMs": { "type": "integer" },
+          "segmentId": { "type": "string" }
+        }
+      }
+    }
+  }
+}
