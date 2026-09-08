@@ -1,23 +1,24 @@
-name: WP-000 acceptance
+name: CI
 
-# Owner-approved exception: run acceptance on Actions before opening the WP-000 PR.
 on:
   push:
     branches:
-      - wp/WP-000-scaffold
+      - '**'
+  pull_request:
 
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
-  acceptance:
+  validate:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    defaults:
-      run:
-        shell: bash
     steps:
-      - name: Check out the pushed commit
+      - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
@@ -35,60 +36,92 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git rev-parse HEAD
 
-      - name: Install the declared dependencies
-        run: npm install --package-lock=false
+      # Temporary bootstrap: npm generates the first lockfile on Node 20.
+      - name: Generate the initial lockfile
+        run: npm install --package-lock-only --ignore-scripts
 
-      - name: Validate the empty pipeline state
+      - name: Record the generated lockfile
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          const lock = readFileSync('package-lock.json');
+          const encoded = lock.toString('base64');
+          console.log('WP000_LOCK_SHA256 ' + createHash('sha256').update(lock).digest('hex'));
+          for (let offset = 0; offset < encoded.length; offset += 4096) {
+            console.log('WP000_LOCK_CHUNK ' + encoded.slice(offset, offset + 4096));
+          }
+          NODE
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Report dependency audit
+        run: |
+          npm ls --depth=0
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { spawnSync } from 'node:child_process';
+          const result = spawnSync('npm', ['audit', '--json'], { encoding: 'utf8' });
+          assert.ifError(result.error);
+          assert.ok(result.status === 0 || result.status === 1, 'npm audit did not complete');
+          const report = JSON.parse(result.stdout);
+          assert.ok(!report.error && report.metadata?.vulnerabilities, 'Invalid audit report');
+          console.log('AUDIT_EXIT_STATUS ' + result.status);
+          console.log(JSON.stringify(report, null, 2));
+          // Vulnerabilities are reported for review; this step does not run audit fix.
+          NODE
+
+      - name: Test the schema validator
+        run: npm run test
+
+      - name: Validate repository JSON
         run: npm run validate
+
+      - name: Verify tracked source files remain unchanged
+        if: always()
+        run: |
+          git diff --exit-code
+          git diff --cached --exit-code
+          test ! -e src
+          sha256sum pipeline/state.json package-lock.json
+
+  typecheck:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node 20
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+
+      - name: Verify runtime and source
+        run: |
+          node --version
+          npm --version
+          node -e "if (process.versions.node.split('.')[0] !== '20') process.exit(1)"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git rev-parse HEAD
+
+      # Temporary bootstrap: npm generates the first lockfile on Node 20.
+      - name: Generate the initial lockfile
+        run: npm install --package-lock-only --ignore-scripts
+
+      - name: Install locked dependencies
+        run: npm ci
 
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Run the scaffold test command
-        run: npm run test
-
-      - name: Reject invalid state and restore the original bytes
-        run: |
-          node --input-type=module <<'NODE'
-          import assert from 'node:assert/strict';
-          import { createHash } from 'node:crypto';
-          import { readFileSync, writeFileSync } from 'node:fs';
-          import { spawnSync } from 'node:child_process';
-
-          const path = 'pipeline/state.json';
-          const original = readFileSync(path);
-          const invalid = JSON.parse(original.toString('utf8'));
-          assert.deepEqual(invalid.episodes, []);
-          delete invalid.episodes;
-
-          try {
-            writeFileSync(path, JSON.stringify(invalid));
-            const result = spawnSync('npm', ['run', 'validate'], { encoding: 'utf8' });
-            assert.ifError(result.error);
-            process.stdout.write(result.stdout);
-            process.stderr.write(result.stderr);
-            assert.equal(result.status, 1, 'Invalid state must exit with status 1');
-            assert.match(
-              result.stdout + result.stderr,
-              /FAIL pipeline\/state\.json:.*required property 'episodes'/,
-            );
-            console.log('PASS negative test: missing episodes rejected with exit 1');
-          } finally {
-            writeFileSync(path, original);
-            assert.deepEqual(readFileSync(path), original);
-            console.log('PASS state restored byte-for-byte');
-            console.log('State SHA-256: ' + createHash('sha256').update(original).digest('hex'));
-          }
-          NODE
-
-      - name: Validate the restored state
-        run: npm run validate
-
-      - name: Verify the checkout remains unchanged
+      - name: Verify tracked source files remain unchanged
         if: always()
         run: |
           git diff --exit-code
-          test -z "$(git ls-files --others --exclude-standard)"
-          test ! -e package-lock.json
+          git diff --cached --exit-code
           test ! -e src
-          echo "PASS tracked files unchanged; no untracked files, package-lock.json, or src"
+          sha256sum pipeline/state.json package-lock.json
