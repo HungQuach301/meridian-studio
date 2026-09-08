@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "meridian/brief.schema.json",
+  "title": "Brief",
+  "description": "Đề tài đã chốt ở Gate 1. thesis BẮT BUỘC do người viết.",
+  "type": "object",
+  "required": [
+    "episodeId",
+    "topic",
+    "thesis",
+    "thesisId",
+    "thesisArchetype",
+    "pillar",
+    "audience",
+    "targetDurationMin",
+    "createdBy",
+    "proposedBy",
+    "workingTitle",
+    "noveltyCheck",
+    "versions"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "episodeId": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[a-z0-9-]+$"
+    },
+    "topic": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 200
+    },
+    "thesis": {
+      "type": "string",
+      "minLength": 40,
+      "maxLength": 500,
+      "description": "1-2 câu luận điểm riêng. Không được sinh tự động."
+    },
+    "pillar": {
+      "type": "string",
+      "enum": [
+        "housing",
+        "debt",
+        "investing",
+        "career-income",
+        "retirement",
+        "spending-psychology"
+      ]
+    },
+    "audience": {
+      "type": "object",
+      "required": [
+        "ageRange",
+        "householdIncomeUsd",
+        "decisionContext"
+      ],
+      "properties": {
+        "ageRange": {
+          "type": "string"
+        },
+        "householdIncomeUsd": {
+          "type": "string"
+        },
+        "decisionContext": {
+          "type": "string"
+        }
+      }
+    },
+    "targetDurationMin": {
+      "type": "integer",
+      "minimum": 8,
+      "maximum": 25
+    },
+    "thresholdMatrixHypothesis": {
+      "type": "string",
+      "description": "Dự kiến 3 ngưỡng định lượng sẽ dùng. Nếu không nghĩ ra được, đề tài không phù hợp."
+    },
+    "createdBy": {
+      "type": "string",
+      "enum": [
+        "human"
+      ],
+      "description": "Người DUYỆT. Máy đề xuất, người giữ quyền bác."
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "thesisId": {
+      "type": "string",
+      "pattern": "^TB-[0-9]{3}$",
+      "description": "ID từ thesis-bank. Máy nạp từ nguồn dữ liệu; người không tự viết trong ngày sản xuất."
+    },
+    "thesisArchetype": {
+      "type": "string",
+      "enum": [
+        "hidden-cost",
+        "threshold-reversal",
+        "false-binary",
+        "delayed-consequence"
+      ],
+      "description": "Không được trùng archetype với tập liền trước."
+    },
+    "versions": {
+      "type": "object",
+      "description": "Đóng băng phiên bản lúc bắt đầu. Xem engine/docs/13-upgrade-safety.md.",
+      "required": [
+        "engine",
+        "genre",
+        "channel"
+      ],
+      "properties": {
+        "engine": {
+          "type": "string"
+        },
+        "genre": {
+          "type": "string"
+        },
+        "channel": {
+          "type": "string"
+        },
+        "prompts": {
+          "type": "object"
+        }
+      }
+    },
+    "workingTitle": {
+      "type": "string",
+      "maxLength": 100,
+      "description": "Viết tiêu đề NGAY ở Gate 1. Chưa viết được tiêu đề hấp dẫn thì thesis chưa đủ sắc — bắt lỗi ở đây tốn 0 USD thay vì 35."
+    },
+    "noveltyCheck": {
+      "type": "object",
+      "required": [
+        "videosChecked",
+        "contradicts",
+        "verdict"
+      ],
+      "description": "Luận điểm phải mâu thuẫn với >=3 trong 5 video đã có. Không mâu thuẫn với gì nghĩa là không có gì mới.",
+      "properties": {
+        "videosChecked": {
+          "type": "integer",
+          "minimum": 5
+        },
+        "contradicts": {
+          "type": "integer",
+          "minimum": 3
+        },
+        "duplicateRisk": {
+          "type": "string",
+          "enum": [
+            "none",
+            "similar",
+            "duplicate"
+          ],
+          "description": "duplicate thì LOẠI — không sản xuất bản sao của video đã có"
+        },
+        "verdict": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "fail"
+          ]
+        }
+      }
+    },
+    "rpmTier": {
+      "type": "string",
+      "enum": [
+        "highest",
+        "high",
+        "medium",
+        "low"
+      ],
+      "description": "low thì cần lý do đặc biệt mới duyệt"
+    },
+    "evergreenScore": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5,
+      "description": "Tuổi thọ nội dung. 1 = bám tin, 5 = thường xanh nhiều năm."
+    },
+    "explorationEpisode": {
+      "type": "boolean",
+      "description": "20% số tập cố ý đi ngược thứ dữ liệu nói là tốt nhất."
+    },
+    "proposedBy": {
+      "type": "string",
+      "enum": [
+        "machine",
+        "human"
+      ],
+      "description": "Ai đề xuất thesis. Chiến lược mới: mặc định machine."
+    },
+    "formatVariant": {
+      "type": "string",
+      "description": "Biến thể format cho A/B ở giai đoạn 1b: ví dụ cold-open-stat, matrix-at-5min, short-12min. Mặc định 'baseline'."
+    }
+  }
+}

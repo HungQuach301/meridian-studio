@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "meridian/publication.schema.json",
+  "title": "Publication",
+  "type": "object",
+  "required": ["episodeId", "videoId", "privacyStatus"],
+  "properties": {
+    "episodeId": { "type": "string" },
+    "videoId": { "type": "string" },
+    "privacyStatus": { "type": "string", "enum": ["private", "unlisted", "public"] },
+    "chosenTitle": { "type": "string" },
+    "chosenThumbnail": { "type": "string" },
+    "scheduledAt": { "type": "string", "format": "date-time" },
+    "publishedAt": { "type": "string", "format": "date-time" },
+    "playlistId": { "type": "string" },
+    "aiDisclosure": { "type": "boolean", "description": "Khai báo nội dung tổng hợp theo quy định YouTube" },
+    "quotaUnitsUsed": { "type": "integer" }
+  }
+}

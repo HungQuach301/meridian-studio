@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "meridian/outline.schema.json",
+  "title": "Narrative Outline",
+  "description": "Phải khớp 7 mốc cấu trúc trong genres/data-explainer/format-spec.json.",
+  "type": "object",
+  "required": [
+    "episodeId",
+    "coldOpen",
+    "promise",
+    "beats",
+    "twoRoads",
+    "closingLoop"
+  ],
+  "properties": {
+    "episodeId": {
+      "type": "string"
+    },
+    "coldOpen": {
+      "type": "object",
+      "required": [
+        "character",
+        "timestamp",
+        "concreteNumber",
+        "text"
+      ],
+      "properties": {
+        "character": {
+          "type": "string",
+          "description": "Tên riêng, tuổi, nghề, thu nhập"
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "Giờ cụ thể, ví dụ 2:45 AM"
+        },
+        "concreteNumber": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 600
+        }
+      }
+    },
+    "promise": {
+      "type": "object",
+      "required": [
+        "openLoop"
+      ],
+      "properties": {
+        "openLoop": {
+          "type": "string",
+          "description": "Điều sẽ tiết lộ ở cuối video"
+        }
+      }
+    },
+    "beats": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "required": [
+          "index",
+          "title",
+          "purpose",
+          "curiosityBridge"
+        ],
+        "properties": {
+          "index": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "devices": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "named-character",
+                "money-to-time",
+                "threshold-matrix",
+                "absolve-viewer",
+                "two-roads",
+                "lexicon"
+              ]
+            }
+          },
+          "chartSlots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "curiosityBridge": {
+            "type": "string",
+            "description": "Câu nối sang beat sau. Cấm kết trung tính."
+          }
+        }
+      }
+    },
+    "midCTA": {
+      "type": "object",
+      "properties": {
+        "afterBeatIndex": {
+          "type": "integer"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "thresholdMatrix": {
+      "type": "object",
+      "required": [
+        "tiers"
+      ],
+      "properties": {
+        "tiers": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "required": [
+              "label",
+              "condition",
+              "monthlyNumber",
+              "verdict"
+            ],
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "condition": {
+                "type": "string"
+              },
+              "monthlyNumber": {
+                "type": "string"
+              },
+              "verdict": {
+                "type": "string"
+              },
+              "claimIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "twoRoads": {
+      "type": "object",
+      "required": [
+        "years",
+        "personA",
+        "personB"
+      ],
+      "properties": {
+        "years": {
+          "type": "integer"
+        },
+        "personA": {
+          "type": "string"
+        },
+        "personB": {
+          "type": "string"
+        }
+      }
+    },
+    "hardRules": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Quy tắc thép người xem mang về"
+    },
+    "closingLoop": {
+      "type": "string",
+      "description": "Quay lại đúng nhân vật của cold open"
+    },
+    "adBreaks": {
+      "type": "array",
+      "description": "Điểm chèn quảng cáo, sinh TỰ ĐỘNG từ curiosityBridge ở ranh giới beat. Tác động 30-50% doanh thu quảng cáo mỗi tập.",
+      "items": {
+        "type": "object",
+        "required": [
+          "adBreakMs",
+          "afterBeatIndex"
+        ],
+        "properties": {
+          "adBreakMs": {
+            "type": "integer"
+          },
+          "afterBeatIndex": {
+            "type": "integer"
+          },
+          "bridgeText": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

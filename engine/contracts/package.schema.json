@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "meridian/package.schema.json",
+  "title": "Packaging",
+  "type": "object",
+  "required": [
+    "episodeId",
+    "titles",
+    "thumbnails",
+    "description",
+    "chapters"
+  ],
+  "properties": {
+    "episodeId": {
+      "type": "string"
+    },
+    "titles": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": [
+          "text",
+          "formula"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "formula": {
+            "type": "string",
+            "enum": [
+              "numbered-list",
+              "binary-choice",
+              "expose",
+              "counter-intuitive-command",
+              "age-or-number-anchor",
+              "geo-compare",
+              "trend-hook"
+            ]
+          }
+        }
+      }
+    },
+    "thumbnails": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "required": [
+          "file",
+          "line1",
+          "redWord"
+        ],
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "line1": {
+            "type": "string"
+          },
+          "line2": {
+            "type": "string"
+          },
+          "redWord": {
+            "type": "string",
+            "description": "Đúng một từ khoá cảm xúc màu đỏ"
+          },
+          "prop": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 5000
+    },
+    "sourcesBlock": {
+      "type": "string",
+      "description": "Danh sách nguồn dán vào description"
+    },
+    "disclaimer": {
+      "type": "string"
+    },
+    "chapters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "startMs",
+          "title"
+        ],
+        "properties": {
+          "startMs": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "shorts": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "description": "3 Shorts RENDER DỌC RIÊNG từ canvas, không cắt từ video ngang. Chỉ đổi viewport và đường máy quay.",
+      "items": {
+        "type": "object",
+        "required": [
+          "file",
+          "sourceBeatIndex",
+          "durationSec"
+        ],
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "sourceBeatIndex": {
+            "type": "integer"
+          },
+          "durationSec": {
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 50
+          },
+          "renderedVertical": {
+            "type": "boolean",
+            "const": true
+          }
+        }
+      }
+    },
+    "affiliateLinks": {
+      "type": "array",
+      "maxItems": 3,
+      "description": "Mức bảo hiểm: chỉ trong description, có công bố FTC. Không đọc thành lời.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "ftcDisclosure": {
+            "type": "boolean",
+            "const": true
+          }
+        }
+      }
+    },
+    "modelSpreadsheetUrl": {
+      "type": "string",
+      "description": "Link bảng tính công khai. Bằng chứng công sức người + lead magnet."
+    }
+  }
+}

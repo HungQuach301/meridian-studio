@@ -1,0 +1,257 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "meridian/storyboard.schema.json",
+  "title": "Storyboard",
+  "type": "object",
+  "required": [
+    "episodeId",
+    "scenes",
+    "selfCheck"
+  ],
+  "properties": {
+    "episodeId": {
+      "type": "string"
+    },
+    "scenes": {
+      "type": "array",
+      "minItems": 20,
+      "items": {
+        "type": "object",
+        "required": [
+          "sceneId",
+          "segmentId",
+          "layout",
+          "durationMs",
+          "camera",
+          "shotSize",
+          "continuity"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "sceneId": {
+            "type": "string",
+            "pattern": "^S[0-9]{4}$"
+          },
+          "segmentId": {
+            "type": "string"
+          },
+          "layout": {
+            "type": "string",
+            "description": "ID layout. Danh sách hợp lệ nằm ở genres/{genre}/layouts.json — KHÔNG hardcode trong contract vì đó là giả định về thể loại."
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": 1200,
+            "description": "Tính từ số từ VO: (số từ / 2.6) giây. Scene có số liệu tối thiểu 3500ms."
+          },
+          "data": {
+            "type": "object",
+            "description": "Props cho Remotion. Số liệu phải trích từ sources.json."
+          },
+          "claimIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "assets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "assetId",
+                "kind",
+                "license"
+              ],
+              "properties": {
+                "assetId": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "stock-photo",
+                    "stock-video",
+                    "generated-image",
+                    "own-footage"
+                  ]
+                },
+                "query": {
+                  "type": "string"
+                },
+                "license": {
+                  "type": "string",
+                  "description": "Bắt buộc. Không có license thì không dùng."
+                }
+              }
+            }
+          },
+          "layoutVariant": {
+            "type": "string",
+            "enum": [
+              "a",
+              "b",
+              "c"
+            ],
+            "description": "Biến thể bố cục, chống lặp. Không dùng cùng layout+variant 2 lần liên tiếp."
+          },
+          "camera": {
+            "type": "object",
+            "description": "Vị trí máy quay trên canvas liên tục. Bắt buộc — không có camera thì là slide.",
+            "required": [
+              "x",
+              "y",
+              "scale",
+              "move"
+            ],
+            "properties": {
+              "x": {
+                "type": "number",
+                "description": "Toạ độ tâm khung trên canvas 6000x3400"
+              },
+              "y": {
+                "type": "number"
+              },
+              "scale": {
+                "type": "number",
+                "minimum": 0.4,
+                "maximum": 3.0
+              },
+              "move": {
+                "type": "string",
+                "enum": [
+                  "hold-drift",
+                  "pan",
+                  "dolly-in",
+                  "dolly-out",
+                  "arc"
+                ],
+                "description": "hold-drift vẫn phải trôi 8-20px/s. Không có trạng thái đứng yên tuyệt đối."
+              },
+              "easing": {
+                "type": "string",
+                "const": "cubic-bezier(0.22,1,0.36,1)"
+              },
+              "overshoot": {
+                "type": "boolean",
+                "description": "Vượt đích 3-5% rồi lùi về trong 120ms"
+              }
+            }
+          },
+          "shotSize": {
+            "type": "string",
+            "enum": [
+              "wide",
+              "medium",
+              "close"
+            ],
+            "description": "Wide 15-25%, medium 45-60%, close 20-30% thời lượng tập. Không quá 4 scene liên tiếp cùng cỡ."
+          },
+          "onScreenWords": {
+            "type": "integer",
+            "maximum": 12,
+            "description": "Số từ hiện cùng lúc. Trần cứng 12. Tổng cả tập <= 22% số từ VO."
+          },
+          "continuity": {
+            "type": "string",
+            "enum": [
+              "cut",
+              "morph",
+              "camera-move"
+            ],
+            "description": "morph BẮT BUỘC nếu scene này và scene trước có claimIds giao nhau."
+          },
+          "audioLeadMs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000,
+            "description": "J-cut: VO của ý mới bắt đầu trước khi máy quay tới, 400-1000ms. Giá trị 0 chỉ dùng khi cố ý tạo cú sốc."
+          },
+          "parallaxLayer": {
+            "type": "string",
+            "enum": [
+              "back",
+              "mid",
+              "front"
+            ],
+            "description": "back di chuyển 30% tốc độ máy quay, mid 100%, front 130%"
+          },
+          "breathAfterMs": {
+            "type": "integer",
+            "maximum": 1000,
+            "description": "Nhịp thở sau tiết lộ: 600-1000ms không có gì mới xảy ra."
+          }
+        }
+      }
+    },
+    "stockRatio": {
+      "type": "number",
+      "maximum": 0.15,
+      "description": "Tỷ lệ thời lượng dùng stock. Trần cứng 15%."
+    },
+    "selfCheck": {
+      "type": "object",
+      "description": "Visual Director BẮT BUỘC tự đếm và khai. Validator so số khai với số tính được; lệch nhau là fail ngay.",
+      "required": [
+        "onScreenWordRatio",
+        "shotSizeMix",
+        "durationStdDevRatio",
+        "jcutCoverage",
+        "morphWhereRequired",
+        "stockRatio"
+      ],
+      "properties": {
+        "onScreenWordRatio": {
+          "type": "number",
+          "maximum": 0.22
+        },
+        "shotSizeMix": {
+          "type": "object",
+          "required": [
+            "wide",
+            "medium",
+            "close"
+          ],
+          "properties": {
+            "wide": {
+              "type": "number",
+              "minimum": 0.15,
+              "maximum": 0.25
+            },
+            "medium": {
+              "type": "number",
+              "minimum": 0.45,
+              "maximum": 0.6
+            },
+            "close": {
+              "type": "number",
+              "minimum": 0.2,
+              "maximum": 0.3
+            }
+          }
+        },
+        "durationStdDevRatio": {
+          "type": "number",
+          "minimum": 0.4
+        },
+        "jcutCoverage": {
+          "type": "number",
+          "minimum": 1.0,
+          "description": "Tỷ lệ scene camera-move có audioLeadMs hợp lệ. Phải bằng 1.0."
+        },
+        "morphWhereRequired": {
+          "type": "boolean",
+          "const": true
+        },
+        "stockRatio": {
+          "type": "number",
+          "maximum": 0.15
+        }
+      }
+    },
+    "genre": {
+      "type": "string",
+      "description": "Genre Pack đã dùng. Validator nạp layouts.json tương ứng."
+    }
+  }
+}

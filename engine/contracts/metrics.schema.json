@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "meridian/metrics.schema.json",
+  "title": "Metrics",
+  "type": "object",
+  "required": ["episodeId", "snapshots"],
+  "properties": {
+    "episodeId": { "type": "string" },
+    "snapshots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["checkpoint", "views", "ctr", "avgViewDurationSec"],
+        "properties": {
+          "checkpoint": { "type": "string", "enum": ["48h", "7d", "28d"] },
+          "views": { "type": "integer" },
+          "impressions": { "type": "integer" },
+          "ctr": { "type": "number" },
+          "avgViewDurationSec": { "type": "integer" },
+          "retention30s": { "type": "number" },
+          "retention50pct": { "type": "number" },
+          "subsGained": { "type": "integer" },
+          "rpmUsd": { "type": "number" },
+          "collectedAt": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  }
+}

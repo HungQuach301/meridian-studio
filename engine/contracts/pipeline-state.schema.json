@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "meridian/pipeline-state.schema.json",
+  "title": "Pipeline State",
+  "type": "object",
+  "required": [
+    "updatedAt",
+    "episodes"
+  ],
+  "properties": {
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "monthlySpendUsd": {
+      "type": "number"
+    },
+    "episodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "episodeId",
+          "stage",
+          "status"
+        ],
+        "properties": {
+          "episodeId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "S01",
+              "S02",
+              "S03",
+              "S04",
+              "S05",
+              "S06",
+              "S07",
+              "S08",
+              "S09",
+              "S09.5",
+              "S10",
+              "S11",
+              "S11.5",
+              "S12",
+              "S13",
+              "S14a",
+              "S14b",
+              "S14c",
+              "S14d",
+              "done"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "idle",
+              "running",
+              "awaiting-gate",
+              "blocked",
+              "failed",
+              "done"
+            ]
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "fast-lane"
+            ]
+          },
+          "spendUsd": {
+            "type": "number"
+          },
+          "flags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "lastRunUrl": {
+            "type": "string"
+          },
+          "staleFrom": {
+            "type": "string"
+          },
+          "retryCount": {
+            "type": "object",
+            "description": "Số lần retry theo stage. Chạm 3 thì dừng, chuyển Gate người.",
+            "additionalProperties": {
+              "type": "integer",
+              "maximum": 3
+            }
+          },
+          "rootCauseStage": {
+            "type": "string",
+            "description": "Stage gây ra lỗi. Pipeline chạy lại TỪ ĐÂY, không phải từ stage kề trước."
+          }
+        }
+      }
+    },
+    "firstPassYield": {
+      "type": "object",
+      "description": "FPY theo stage. Dưới 0.7 = đặc tả sai, phải viết lại, không phải retry.",
+      "additionalProperties": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      }
+    },
+    "thesisBankCount": {
+      "type": "integer",
+      "minimum": 15,
+      "description": "Số thesis khả dụng. Dưới 15 thì orchestrator ngừng nhận episode mới."
+    },
+    "distributionPhase": {
+      "type": "string",
+      "enum": [
+        "phase-0",
+        "phase-1",
+        "phase-2"
+      ],
+      "description": "phase-0: 0-100 sub, đề tài hẹp, 3 tập/tuần. phase-1: 100-1000. phase-2: 1000+, mở nhịp 7/tuần."
+    },
+    "channels": {
+      "type": "object",
+      "description": "Trạng thái theo kênh. Thay cho danh sách episode phẳng khi có nhiều kênh.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "genre": {
+            "type": "string"
+          },
+          "engineVersion": {
+            "type": "string"
+          },
+          "distributionPhase": {
+            "type": "string",
+            "enum": [
+              "phase-0",
+              "phase-1",
+              "phase-2"
+            ]
+          },
+          "thesisBankCount": {
+            "type": "integer",
+            "minimum": 15
+          },
+          "explorationRatio": {
+            "type": "number",
+            "minimum": 0.18,
+            "maximum": 0.25,
+            "description": "20% tập cố ý đi ngược dữ liệu"
+          },
+          "monthlySpendUsd": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "portfolioSpendUsd": {
+      "type": "number",
+      "description": "Tổng chi phí cả danh mục. Chạm trần thì dừng kênh yếu nhất, không cắt đều."
+    }
+  }
+}

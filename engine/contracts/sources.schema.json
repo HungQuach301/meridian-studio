@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "meridian/sources.schema.json",
+  "title": "Source Ledger",
+  "description": "Sổ nguồn. Mỗi claim số liệu phải có một mục ở đây. 100% bắt buộc.",
+  "type": "object",
+  "required": ["episodeId", "claims"],
+  "properties": {
+    "episodeId": { "type": "string" },
+    "claims": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["claimId", "statement", "value", "sourceUrl", "publisher", "retrievedAt"],
+        "additionalProperties": false,
+        "properties": {
+          "claimId": { "type": "string", "pattern": "^C[0-9]{3}$" },
+          "statement": { "type": "string" },
+          "value": { "type": "string", "description": "Con số hoặc dữ kiện dạng chuỗi, giữ nguyên đơn vị gốc" },
+          "sourceUrl": { "type": "string", "format": "uri" },
+          "publisher": { "type": "string", "enum": ["FRED", "BLS", "Census", "IRS", "FreddieMac", "FDIC", "CFPB", "SSA", "Other"] },
+          "seriesId": { "type": "string" },
+          "asOfDate": { "type": "string", "format": "date" },
+          "retrievedAt": { "type": "string", "format": "date-time" },
+          "notes": { "type": "string" }
+        }
+      }
+    }
+  }
+}
