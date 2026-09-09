@@ -8,7 +8,7 @@ Một WP = một task Codex = một PR. Không giao hai WP trong một task.
 | WP-VAL-001 | Kiểm giả định khán giả (tuỳ chọn, song song) | 0–2 | — | optional |
 | WP-001 | CI hardening | 1 | WP-000 | done — [PR #6](https://github.com/HungQuach301/meridian-studio/pull/6); [acceptance Loại 2 đạt](https://github.com/HungQuach301/meridian-studio/actions/runs/34305316494); [CI main sau merge đạt](https://github.com/HungQuach301/meridian-studio/actions/runs/34307853514) |
 | WP-002 | Workflow hello + dispatch | 1 | WP-000, WP-001 | done — [PR #7](https://github.com/HungQuach301/meridian-studio/pull/7); chủ dự án nghiệm thu [heartbeat](https://github.com/HungQuach301/meridian-studio/actions/runs/34327921569), [sender](https://github.com/HungQuach301/meridian-studio/actions/runs/34330111639) và [receiver](https://github.com/HungQuach301/meridian-studio/actions/runs/34330212617); cả ba run success, attempt 1 |
-| WP-003a | **Spike:** Sites có nạp mã động không | 1 | WP-000 | todo |
+| WP-003a | **Spike:** Sites có nạp mã động không | 1 | WP-000 | in-progress — chủ dự án nghiệm thu Function/UTF-8 trên Sites v1; [PR #8](https://github.com/HungQuach301/meridian-studio/pull/8), [hồ sơ](work-packages/WP-003a-sites-loader-spike.md#10-hồ-sơ-kết-luận-đã-nghiệm-thu), [ADR-0006 Chấp nhận](../docs/02-adr/ADR-0006-cockpit-delivery.md); chờ review/merge PR đồng bộ tài liệu và duyệt đóng; giữ phần chưa kiểm |
 | WP-003 | Cockpit UI shell | 1 | WP-001, WP-003a | todo |
 | WP-004 | Nút dispatch từ UI | 1 | WP-002, WP-003 | todo |
 | WP-004a | **SPIKE: canvas liên tục 6000x3400** | 2 | WP-002 | todo |

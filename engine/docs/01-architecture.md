@@ -83,7 +83,7 @@ GitHub là nguồn sự thật duy nhất. ChatGPT Work là nơi nhận yêu c�
 Loại nghiệm thu và việc cho phép dùng secret/provider được quy định riêng trong
 `13-upgrade-safety.md` và từng WP. Việc chạy CI không tự cấp quyền triển khai.
 
-## Triển khai cockpit — phương án đang kiểm chứng
+## Triển khai cockpit — quyết định ADR-0006
 
 ### Phương án A · Loader từ repo, bản triển khai tĩnh trên Sites
 
@@ -91,10 +91,15 @@ Nguồn chuẩn là `engine/app/loader.html` và `engine/app/cockpit.js` trong
 `HungQuach301/meridian-studio`. Loader nhận token đọc từ chủ dự án, gọi GitHub Contents API
 để tải `engine/app/cockpit.js` và thử thực thi trong trình duyệt.
 
-**Chưa kết luận Sites cho phép thực thi mã động.** WP-003a phải thử trên Site thật và chủ dự án
-nghiệm thu trước khi chốt phương án cho WP-003. Mã thử hiện yêu cầu commit SHA và blob SHA đã
-review, chỉ tải đúng revision đó; không tự theo main. Thử hai revision trên cùng phiên bản
-Sites là bằng chứng bổ sung, không được thay bằng một lần xuất hiện marker thành công.
+**Chủ dự án đã nghiệm thu một lượt Function constructor và UTF-8 trên Sites phiên bản 1
+bằng Google Chrome, đồng thời chấp nhận [ADR-0006](02-adr/ADR-0006-cockpit-delivery.md).**
+Nguồn Meridian là `423353caaf795db764602283abf299b1e7778871`, blob mã thử
+`3489a8b303d049b650a222e24e420e51aa110b1b`; kết quả HTTP 200 và `WP003A_EXECUTED`.
+Hồ sơ đầy đủ M/L/S/V/deployment và log ở WP-003a mục 10 và ADR-0006.
+
+Loader yêu cầu commit SHA và blob SHA đã review; không tự theo main. Chưa kiểm Script inline,
+reload/xóa token trên Site thật, hai revision trên cùng phiên bản Sites, trình duyệt khác,
+Cockpit đọc state hoặc client dispatch WP-004. Không suy rộng một marker thành nghiệm thu UI.
 
 Chủ dự án đã chấp nhận ngoại lệ giới hạn: kho Git do Sites quản lý chỉ lưu bản sao triển khai
 loader và metadata hosting. Meridian vẫn là nguồn sự thật duy nhất; không phát triển UI độc
@@ -116,7 +121,8 @@ Sites đã đẩy thành công. Archive chỉ chứa `dist/index.html` và
 `dist/.openai/hosting.json` do công cụ đóng gói chuẩn hóa.
 
 Chấp nhận thiết kế bản sao chưa cấp quyền tạo kho/Site, lấy credential, lưu hoặc triển khai.
-Hiện chỉ chuẩn bị PR WP-003a. Các thao tác Sites cần phê duyệt riêng; không bỏ qua quy trình
+Phiên bản 1 đã triển khai theo phê duyệt riêng; lượt thử đã hoàn tất. Mọi thao tác Sites mới
+cần phê duyệt riêng; không bỏ qua quy trình
 nguồn Git bằng cách dán HTML hoặc chỉ gửi archive. Mỗi URL Sites đã triển khai là production,
 kể cả khi chỉ chủ dự án và quản trị viên workspace truy cập được.
 
@@ -135,13 +141,14 @@ https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-githu
 
 ### Quyết định sau phép thử
 
-WP-003a ở `engine/ops/work-packages/WP-003a-sites-loader-spike.md`.
-Kết quả cuối do chủ dự án viết và chấp nhận tại
-`engine/docs/02-adr/ADR-0006-cockpit-delivery.md`; file này chưa được tạo.
-Đường dẫn có hai lần `engine/` trong tài liệu cũ là dẫn chiếu sai, không phải thư mục mới.
+[ADR-0006](02-adr/ADR-0006-cockpit-delivery.md) ghi nội dung chủ dự án đã phê duyệt;
+agent chỉ soạn và đưa vào repo theo yêu cầu rõ ràng của chủ dự án.
+Đường dẫn đúng là `engine/docs/02-adr/`, không tạo thư mục có hai lần `engine/`.
 
-WP-003 hiện còn mô tả copy-paste `index.html`; chưa triển khai theo mô tả đó.
-Sau kết quả, cập nhật WP-003 và runbook bằng phạm vi được duyệt riêng trước khi xây Cockpit.
+WP-003 dùng `engine/app/cockpit.js` và `engine/app/README.md`; phụ thuộc WP-001/WP-003a.
+Đây là đặc tả, chưa triển khai Cockpit. Trước triển khai phải chốt nguồn commit/blob,
+quy trình cập nhật, báo hoàn tất khởi động và token đọc state riêng; không giả định loader
+truyền token qua biến toàn cục. Không cần sửa loader trong đợt đồng bộ tài liệu này.
 
 `engine/app/cockpit.js` giữ một file JavaScript trình duyệt, không dependency và không build
 step theo ràng buộc phân phối UI. Đây không phải thay đổi quy ước TypeScript của stage Engine.
@@ -154,10 +161,11 @@ step theo ràng buộc phân phối UI. Đây không phải thay đổi quy ư�
 - Token chỉ tồn tại trong bộ nhớ cần cho request. Không lưu localStorage, sessionStorage,
   cookie, URL hoặc biến môi trường Sites; không đặt token trên `window` cho mã thử.
 - Loader chỉ GET tới `api.github.com`, chặn redirect và không tự retry. Ô token được xóa;
-  reload yêu cầu nhập lại. Giao diện không thể chứng minh token không có quyền dư:
+  reload theo thiết kế yêu cầu nhập lại, chưa kiểm hành vi này trên Site thật. Giao diện không thể chứng minh token không có quyền dư:
   chủ dự án phải kiểm quyền khi cấp, không dùng request ghi để kiểm.
 - Credential ngắn hạn do Sites cấp để đẩy bản triển khai là credential kỹ thuật riêng.
-  Chưa được lấy/sử dụng trong bước chuẩn bị PR này và không thay cho PAT đọc của loader.
+  Chỉ được dùng trong giai đoạn Sites đã được duyệt; không thay cho PAT đọc của loader.
+  Đợt đồng bộ tài liệu không lấy credential hoặc dùng token. Token thử đã xóa theo xác nhận chủ dự án.
 - Quyền ghi/Actions cho công việc Cockpit sau này phải được duyệt theo WP tương ứng.
   WP-003a không cần và không cấp các quyền đó. Xem R3 trong `06-risk-register.md`.
 

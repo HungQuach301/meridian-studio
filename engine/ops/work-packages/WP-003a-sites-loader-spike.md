@@ -2,7 +2,7 @@
 
 **Wave:** 1  
 **Phụ thuộc:** WP-000 đã hoàn tất  
-**Trạng thái:** in-progress — chuẩn bị PR; chưa nghiệm thu Sites  
+**Trạng thái:** in-progress — Function/UTF-8 đã nghiệm thu; ADR-0006 đã chấp nhận; chờ review/merge hồ sơ  
 **Loại:** SPIKE — câu trả lời có/không từ bằng chứng thật  
 **Repository nguồn sự thật:** `HungQuach301/meridian-studio`
 
@@ -15,17 +15,14 @@ Hết thời gian phải dừng và báo kết quả, kể cả khi chưa xác �
 Xác định một Site tĩnh có thể tải và thực thi JavaScript từ repo private Meridian hay không.
 Kết quả quyết định cách phân phối Cockpit ở WP-003. Chưa xây bảng pipeline, gate hoặc dispatch.
 
-Chủ dự án đã duyệt:
+Chủ dự án đã nghiệm thu đúng một lượt Function constructor/UTF-8 trên Sites v1 bằng Chrome,
+xác nhận token chỉ Contents read và đã xóa. Chủ dự án yêu cầu agent soạn ADR-0006, phê duyệt
+nội dung, rồi duyệt riêng một PR đồng bộ đúng bảy file mục 4.3 từ main
+`423353caaf795db764602283abf299b1e7778871`; cho phép CI tự động.
 
-- Chuẩn bị **một PR, đúng sáu file Meridian** ở mục 4.1; cho phép CI tự động.
-- Kho Git do Sites quản lý chỉ lưu bản sao triển khai loader và metadata hosting;
-  Meridian vẫn là nguồn sự thật duy nhất.
-- Token thử chỉ **Contents read**.
-- Chủ dự án giữ quyền nghiệm thu và viết/quyết định ADR.
-
-**Chưa được duyệt:** merge; tạo kho/Site; lấy credential Sites; lưu/triển khai phiên bản;
-dùng PAT thật; dispatch/rerun; gọi provider; đổi settings/quyền repository.
-Chấp nhận thiết kế bản sao không phải quyền thực thi các thao tác này.
+Các phê duyệt PR #8, chuẩn bị/triển khai Sites v1 và lượt thử đã hoàn tất, không tái sử dụng.
+Hiện không merge, sửa mã nguồn, thao tác Sites, dùng token, thử thêm, dispatch/rerun hoặc gọi
+provider. Chủ dự án giữ quyền quyết định ADR và duyệt đóng WP-003a. Hồ sơ kết luận ở mục 10.
 
 ## 2. Input và checkpoint
 
@@ -36,7 +33,7 @@ Chấp nhận thiết kế bản sao không phải quyền thực thi các thao 
 NFR, risk register R3/R10, runbook, upgrade safety, definition-of-done,
 package/lockfile và CI hiện có.
 
-### Checkpoint trước chuẩn bị PR
+### Checkpoint lịch sử trước chuẩn bị PR #8
 
 | Hạng mục | Giá trị |
 |---|---|
@@ -68,11 +65,11 @@ Client ngoài GitHub/Cockpit thuộc WP-004, chưa được nghiệm thu.
 3. Đặc tả, kiến trúc, bảng Wave 1 và quyền token thống nhất trong sáu file.
 4. Hồ sơ PR nêu riêng kiểm tra offline/CI và phần Sites thật chưa thực hiện.
 5. Sau phê duyệt thử thật: bằng chứng nguồn → bản triển khai → kết quả.
-6. Sau nghiệm thu: ADR-0006 do chủ dự án viết/quyết định và tài liệu WP-003 đồng bộ.
+6. Sau nghiệm thu: ADR-0006 theo nội dung chủ dự án đã duyệt và tài liệu WP-003 đồng bộ.
 
 ## 4. Files in scope
 
-### 4.1. Được sửa trong PR hiện tại — đúng sáu file
+### 4.1. Phạm vi lịch sử PR #8 đã merge — đúng sáu file
 
 | File | Phạm vi |
 |---|---|
@@ -84,9 +81,10 @@ Client ngoài GitHub/Cockpit thuộc WP-004, chưa được nghiệm thu.
 | `engine/app/cockpit.js` | Marker tối thiểu và UTF-8, chưa có tính năng Cockpit |
 
 Không sửa `PROJECT.md`, `AGENTS.md`, guardrails, contracts, package, lockfile, workflow,
-runbook, backlog hoặc ADR trong PR hiện tại. Không mở PR thứ hai để xử lý phần thiếu.
+runbook, backlog hoặc ADR trong phạm vi PR #8. PR đồng bộ sau nghiệm thu đã được chủ dự án
+duyệt riêng tại mục 4.3; không mở thêm PR ngoài quyền đó.
 
-### 4.2. Giai đoạn Sites — chưa thực hiện, cần duyệt riêng
+### 4.2. Giai đoạn Sites — phiên bản 1 đã hoàn tất theo phê duyệt riêng
 
 Kho nguồn Sites chỉ có hai file nội dung được quản lý:
 
@@ -99,28 +97,31 @@ Không tạo các file này trong Meridian. Không copy `cockpit.js`, state, tà
 dependency hoặc lịch sử đầy đủ của Meridian vào kho Sites. Không tự khởi tạo starter.
 Archive tạm là sản phẩm đóng gói, không commit binary vào repo.
 
-### 4.3. Sau thử thật — cần phạm vi cập nhật được duyệt riêng
+### 4.3. PR đồng bộ sau nghiệm thu — đúng bảy file đã được duyệt
 
-| File | Người quyết định/nội dung |
+| File | Phạm vi |
 |---|---|
-| `engine/docs/02-adr/ADR-0006-cockpit-delivery.md` | Chủ dự án viết và chấp nhận quyết định/bằng chứng |
-| `engine/docs/02-adr/README.md` | Chủ dự án chấp nhận mục ADR mới |
-| `engine/ops/work-packages/WP-003-cockpit-shell.md` | Thêm phụ thuộc WP-003a, output và acceptance khớp quyết định |
-| `engine/docs/01-architecture.md` | Ghi kết luận sau nghiệm thu |
-| `engine/docs/05-runbook.md` | Thao tác triển khai/chẩn đoán đã kiểm thực tế |
-| `engine/ops/backlog.md` | Chỉ dòng WP-003a; chỉ done sau nghiệm thu |
+| `engine/ops/work-packages/WP-003a-sites-loader-spike.md` | Hồ sơ kết luận, quyền đã dùng, ngân sách và giới hạn; giữ mốc lịch sử |
+| `engine/docs/02-adr/ADR-0006-cockpit-delivery.md` | Thêm đúng nội dung chủ dự án đã duyệt, trạng thái Chấp nhận |
+| `engine/docs/02-adr/README.md` | Chỉ thêm dòng ADR-0006 với trạng thái khớp |
+| `engine/ops/work-packages/WP-003-cockpit-shell.md` | Đặc tả loader/Cockpit chỉ đọc, phụ thuộc và acceptance; chưa triển khai |
+| `engine/docs/01-architecture.md` | Kết luận đã nghiệm thu, dẫn ADR và giới hạn |
+| `engine/docs/05-runbook.md` | Chỉ phần WP-003a/Cockpit: nguồn, phiên bản, thao tác và giới hạn |
+| `engine/ops/backlog.md` | Chỉ dòng WP-003a; chưa done khi còn chờ review/merge và duyệt đóng |
 
-ADR thuộc chủ dự án theo README thư mục ADR. Agent tổng hợp bằng chứng, không tự viết ADR.
-Danh sách sau thử không cấp quyền mở thêm PR hoặc ghi trực tiếp main.
+Quyền soạn/ghi ADR này xuất phát từ yêu cầu và phê duyệt rõ ràng của chủ dự án,
+không sửa quy tắc chung của thư mục ADR. Một file mới, sáu file sửa; 94 file cũ khác giữ nguyên.
+Không sửa code, contracts, package/lockfile, workflow, state, delivery plan hoặc secrets policy.
+Không merge hoặc mở PR khác trong đợt này.
 
 ## 5. Đóng gói Sites và blocker
 
-### B1 — thiết kế đã chốt, thực thi còn chờ
+### B1 — đã giải quyết cho gói và phiên bản 1
 
 Ngày 2026-09-09, chủ dự án chấp nhận bản sao triển khai giới hạn tại mục 4.2.
 Chốt đường **HTML tĩnh**, không framework, không build JavaScript, không dependency/action mới.
 
-Sau phê duyệt thực thi:
+Quy trình đã dùng sau các phê duyệt riêng; không phải quyền chạy lại:
 
 1. Xác minh commit Meridian được duyệt; tính SHA-256 loader.
 2. Tạo hoặc dùng đúng Site Meridian theo hồ sơ đã xác minh, lấy ID/nguồn Git từ nền tảng.
@@ -150,15 +151,17 @@ Kho Sites không được trở thành nơi sửa UI độc lập hoặc lưu st
 Nếu công cụ thực tế đòi thêm file/capability/quyền, hoặc không bảo toàn cách đóng gói đã chốt:
 dừng và báo khác biệt. Không dùng Worker, D1/R2, proxy, Pages hoặc repo khác làm đường vòng.
 
-### B2 — chưa biết Sites có cho chạy mã động
+### B2 — Function constructor đã được nghiệm thu trong điều kiện đã thử
 
-CSP/CORS trên Site thật vẫn chưa được kiểm.
+HTTP 200, blob khớp, thực thi và UTF-8 đạt trên Sites v1/Chrome. Không coi đây là kiểm
+toàn bộ CSP/CORS hoặc mọi cơ chế; Script inline và các giới hạn mục 10 vẫn chưa kiểm.
 Preview/sandbox hoặc CI không thay thế bằng chứng trên origin Sites đã triển khai.
 Không nới CSP hoặc tắt bảo vệ trình duyệt để làm phép thử đạt.
 
-### B3 — tài liệu sau nghiệm thu còn chờ
+### B3 — nội dung đã duyệt, hồ sơ còn chờ review/merge
 
-WP-003 hiện vẫn mô tả dán `index.html` thủ công; không triển khai WP-003 trước khi đồng bộ.
+ADR-0006 đã được chủ dự án duyệt. PR này đồng bộ WP-003 và runbook theo loader;
+chưa triển khai WP-003 và chưa đánh dấu done trước khi chủ dự án duyệt đóng.
 Đường ADR đúng là `engine/docs/02-adr/`; không tạo thư mục `engine/engine/docs/`.
 B/C dùng Pages chưa được duyệt; GitHub Free không hỗ trợ Pages từ repo private.
 
@@ -183,7 +186,7 @@ B/C dùng Pages chưa được duyệt; GitHub Free không hỗ trợ Pages từ
   URL, Sites environment variables hoặc biến token toàn cục.
 - Loader xóa ô token khi lấy giá trị và sau lượt thử. Reload phải nhập lại.
 - Không request ghi để kiểm quyền token; chủ dự án kiểm quyền tại lúc cấp.
-- Credential nguồn Sites là loại riêng; chưa được lấy/sử dụng trong PR này.
+- Credential nguồn Sites là loại riêng; đợt đồng bộ tài liệu không lấy hoặc sử dụng credential.
 - Không log request headers, token hoặc thông điệp exception thô.
 
 ### Loader và mã thử
@@ -207,7 +210,7 @@ B/C dùng Pages chưa được duyệt; GitHub Free không hỗ trợ Pages từ
 
 ## 7. Acceptance
 
-### 7.1. Phần chuẩn bị PR
+### 7.1. Tiêu chí lịch sử của phần chuẩn bị PR #8
 
 Kiểm trong môi trường agent với dữ liệu giả, không network/token thật:
 
@@ -231,7 +234,7 @@ CI tự động hiện có chạy Node 20 và các lệnh `npm run test`, `npm r
 CI này không có test loader mới; typecheck hiện chỉ bao phủ TypeScript của repo.
 Không tự thêm workflow để mở rộng CI. Ghi link và SHA của các run thực tế trong PR.
 
-### 7.2. Sites thật — chưa được thực hiện
+### 7.2. Kịch bản Sites thật — Function đã hoàn tất, xem kết quả mục 10
 
 Mỗi cơ chế tối đa một lượt trong kịch bản được chủ dự án duyệt.
 Phép reload hoặc thử cơ chế khác phải nằm trong phê duyệt, không tự dùng lại quyền.
@@ -281,7 +284,7 @@ không bảo toàn đóng gói/nguồn; không giữ được truy cập riêng 
 kết quả không rõ hoặc có request ghi/commit/run ngoài dự kiến.
 Không tự retry, rerun, nới CSP, sửa contracts/state hoặc dùng Pages.
 
-### Hoàn tất phần chuẩn bị PR hiện tại
+### Tiêu chí lịch sử phần chuẩn bị PR #8 (không phải trạng thái hiện tại)
 
 - [ ] Đúng sáu file; 94 file còn lại trong cây 100 file sau bổ sung probe giữ nguyên.
 - [ ] Fixture không dùng mạng/token thật đạt và CI tự động đạt.
@@ -290,17 +293,94 @@ Không tự retry, rerun, nới CSP, sửa contracts/state hoặc dùng Pages.
 
 ### Hoàn tất toàn bộ WP-003a sau phê duyệt riêng
 
-- [ ] Thử Site thật có bằng chứng gắn đúng nguồn/phiên bản.
-- [ ] Chủ dự án nghiệm thu kết luận; PAT/state/phạm vi được bảo toàn.
-- [ ] Chủ dự án viết và chấp nhận ADR-0006; WP-003 và runbook khớp quyết định.
+- [x] Thử Site thật có bằng chứng gắn đúng nguồn/phiên bản.
+- [x] Chủ dự án nghiệm thu kết luận; token chỉ đọc/đã xóa theo xác nhận, state giữ nguyên.
+- [x] Chủ dự án đã phê duyệt nội dung ADR-0006 do agent soạn theo yêu cầu.
+- [ ] PR đồng bộ ADR/WP-003/runbook được review, checks đạt và merge được duyệt riêng.
 - [ ] Dòng WP-003a trong backlog được cập nhật sau nghiệm thu theo quyền ghi riêng.
 
 ## 9. Bước tiếp theo cho chủ dự án
 
-1. Mở PR, xem đúng sáu file và phần bằng chứng/giới hạn kiểm tra.
-2. Nếu muốn tiếp tục, yêu cầu review read-only tại head PR được cung cấp.
-3. Chỉ duyệt merge đúng head sau review; đây chưa phải nghiệm thu Sites.
-4. Duyệt riêng tạo/lưu Site, nguồn triển khai và phiên bản thử cụ thể; không cần terminal.
-5. Khi Site sẵn sàng và lượt thử được duyệt, nhập token trực tiếp trên Site rồi gửi ảnh
-   bằng chứng không chứa token. Không gửi PAT vào chat.
-6. Nghiệm thu và quyết định ADR trước khi triển khai WP-003.
+1. Mở PR đồng bộ → Files changed: đúng bảy file mục 4.3; xem ADR Chấp nhận và phần chưa kiểm.
+2. Review read-only tại head SHA được cung cấp; kiểm CI tự động và ngân sách thực tế trong PR.
+3. Chỉ duyệt merge/đóng hồ sơ khi checks và review đạt; PR này không có quyền merge.
+4. Sau checkpoint sau merge, duyệt kế hoạch WP-003 riêng; không dùng lại lượt thử đã hoàn tất.
+
+## 10. Hồ sơ kết luận đã nghiệm thu
+
+### Nguồn và phiên bản
+
+| Mốc | Giá trị |
+|---|---|
+| M — main Meridian | `423353caaf795db764602283abf299b1e7778871` |
+| Tree Meridian | `c107d50aaa51895e5d33f1658eedf5499d335e97` |
+| L — SHA-256 loader | `8ce0d5d03b0d1a5a18e7ece4337d7fb68e072c6d3c987619b4f02b794fccbdc0` |
+| Blob loader / kích thước | `589b292d88a7b8578541feea5eedb3634d8cddb4` / 11.319 byte |
+| S — commit nguồn Sites | `c720b33be01a575e383444fe49e803135d6b0f2b` |
+| Site | Meridian Studio / `meridian-studio` / `appgprj_6aa16be27e688191956ed0746e3af820` |
+| V — phiên bản 1 | `appgprj_6aa16be27e688191956ed0746e3af820~appgver_ff3f047e374481919d61d43b1713372d` |
+| Deployment | `appgdep_6aa16ea9d6088191ad326edc6fa8982b`, succeeded, env revision 0 |
+| URL | https://meridian-studio.quach-hung.chatgpt.site |
+| Quyền đã đối soát | access_mode custom, revision 1, một allowed user là owner; không editor/group/khách được cấp quyền |
+| Archive | 2 file, 20.480 byte; `sha256:4d1385033e77599234abecdd711a84353213b49bacdd36d05fa4a8583001fe97` |
+
+Kho nguồn có đúng hai file mục 4.2; hash loader bằng bản sao triển khai. Archive có hai đường
+mục 5. Hash archive đã khớp qua tái dựng tar chuẩn hóa từ hai file và đối chiếu metadata;
+chưa tải trực tiếp archive máy chủ để so sánh toàn bộ byte. Quyền chia sẻ ghi theo cấu hình
+Sites đã đối soát, không phải tuyên bố loại bỏ quyền quản trị hệ thống của nền tảng.
+
+[PR #8](https://github.com/HungQuach301/meridian-studio/pull/8) đã merge từ head
+`867401b630c847cebbb51a0593600ffe8faf0350`. Trước PR đồng bộ: 100 file, 44 workflow run,
+12 Hello, không run đang chạy. CI [34360862197](https://github.com/HungQuach301/meridian-studio/actions/runs/34360862197)
+và Hello [34360862138](https://github.com/HungQuach301/meridian-studio/actions/runs/34360862138)
+đều success, attempt 1; heartbeat/send-hello skipped. State SHA-256 và nội dung khớp mục 2.
+Các run CI tự động do PR đồng bộ tạo ra được ghi riêng trong PR, không sửa mốc lịch sử này.
+
+### Lượt Function constructor và nghiệm thu
+
+```jsonl
+{"repository":"HungQuach301/meridian-studio","path":"engine/app/cockpit.js","ref":"423353caaf795db764602283abf299b1e7778871","expectedBlob":"3489a8b303d049b650a222e24e420e51aa110b1b","mechanism":"function","startedAt":"2026-09-09T14:49:33.396Z"}
+{"httpStatus":200}
+{"verifiedBlob":"3489a8b303d049b650a222e24e420e51aa110b1b","codeSha256":"44247934c534d274c81d108bde10c0d423364b1e4b0990c5ae5a77aaa18dd6aa"}
+{"outcome":"WP003A_EXECUTED","finishedAt":"2026-09-09T14:49:34.509Z"}
+```
+
+Mã thử 478 byte, blob và SHA-256 được đối chiếu với repo. Log kéo dài 1,113 giây.
+Ảnh do chủ dự án gửi thể hiện `WP003A_EXECUTED`, `Loader OK`,
+`wp003a-v1 · Kiểm tra UTF-8: tiếng Việt — ✓` và nút chạy đã vô hiệu hóa.
+Chủ dự án xác nhận Google Chrome (chưa ghi số phiên bản), nghiệm thu Function/UTF-8,
+token chỉ Contents read của Meridian và đã xóa. Quyền/xóa token là xác nhận chủ dự án,
+không phải kiểm token độc lập. Tổng tạo token + thử thật do chủ dự án báo là 3 phút.
+
+Chủ dự án đã phê duyệt nội dung [ADR-0006](../../docs/02-adr/ADR-0006-cockpit-delivery.md).
+Lượt Function đã hoàn tất; số lượt còn được phép theo phê duyệt đó là 0.
+
+### Giới hạn giữ nguyên
+
+Chưa kiểm Script inline; reload/xóa và nhập lại token trên Site thật; hai revision Cockpit
+trên cùng Sites version không redeploy; trình duyệt khác/chính sách Sites tương lai;
+Cockpit đọc state WP-003; client dispatch WP-004. Không suy rộng thành tự theo main,
+tự cập nhật UI, mọi cơ chế đều chạy hoặc Cockpit đã hoàn chỉnh. Không thử thêm trong PR này.
+
+### Sổ thời gian tiếp nối
+
+| Giai đoạn đã ghi sổ | Phút tính vào giới hạn |
+|---|---:|
+| Chuẩn bị kỹ thuật ban đầu | 45 |
+| Review/merge PR #8 và lập kế hoạch sau merge | 30 |
+| Chuẩn bị Sites | 9 |
+| Đối soát archive | 3 |
+| Triển khai riêng tư | 3 |
+| Đối chiếu hai SHA trên màn hình | 1 |
+| Hướng dẫn lượt thử | 2 |
+| Chủ dự án tạo token và chạy thử | 3 |
+| Đối soát bằng chứng nghiệm thu | 3 |
+| Kế hoạch đồng bộ hồ sơ | 6 |
+| Soạn ADR đề xuất | 5 |
+| Tổng trước PR đồng bộ | 110 |
+| Còn tối đa khi bắt đầu PR đồng bộ | 10 |
+
+Không đặt lại giới hạn 120 phút. PR đồng bộ phải ghi thời gian thực tế đã dùng và số dư
+ở mô tả/bàn giao, gồm kiểm tra và theo dõi CI. Nếu hết ngân sách, dừng và báo công việc
+còn lại; không đánh dấu done hoặc tự chạy thêm. Không tính khoảng chủ dự án không làm việc
+thành thời gian thực thi và không thay số 3 phút thử thật bằng khoảng cách giữa các tin nhắn.
