@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node 20
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+
+      - name: Verify runtime and source
+        run: |
+          node --version
+          npm --version
+          node -e "if (process.versions.node.split('.')[0] !== '20') process.exit(1)"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git rev-parse HEAD
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Report dependency audit
+        run: |
+          npm ls --depth=0
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { spawnSync } from 'node:child_process';
+          const result = spawnSync('npm', ['audit', '--json'], { encoding: 'utf8' });
+          assert.ifError(result.error);
+          assert.ok(result.status === 0 || result.status === 1, 'npm audit did not complete');
+          const report = JSON.parse(result.stdout);
+          assert.ok(!report.error && report.metadata?.vulnerabilities, 'Invalid audit report');
+          console.log('AUDIT_EXIT_STATUS ' + result.status);
+          console.log(JSON.stringify(report, null, 2));
+          // Vulnerabilities are reported for review; this step does not run audit fix.
+          NODE
+
+      - name: Test the schema validator
+        run: npm run test
+
+      - name: Validate repository JSON
+        run: npm run validate
+
+      - name: Verify source files remain unchanged
+        if: always()
+        run: |
+          git diff --exit-code
+          git diff --cached --exit-code
+          test -z "$(git ls-files --others --exclude-standard)"
+          test ! -e src
+          sha256sum pipeline/state.json package-lock.json
+          echo "PASS source files unchanged; no untracked files or src"
+
+  typecheck:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node 20
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+
+      - name: Verify runtime and source
+        run: |
+          node --version
+          npm --version
+          node -e "if (process.versions.node.split('.')[0] !== '20') process.exit(1)"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git rev-parse HEAD
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Verify source files remain unchanged
+        if: always()
+        run: |
+          git diff --exit-code
+          git diff --cached --exit-code
+          test -z "$(git ls-files --others --exclude-standard)"
+          test ! -e src
+          sha256sum pipeline/state.json package-lock.json
+          echo "PASS source files unchanged; no untracked files or src"

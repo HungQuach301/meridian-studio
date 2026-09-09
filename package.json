@@ -1,0 +1,21 @@
+{
+  "name": "meridian-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "20.x"
+  },
+  "scripts": {
+    "validate": "tsx scripts/validate-schemas.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "ajv": "^8",
+    "ajv-formats": "^3",
+    "typescript": "^5",
+    "tsx": "^4",
+    "vitest": "^3"
+  }
+}
