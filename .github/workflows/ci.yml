@@ -18,6 +18,8 @@ jobs:
   validate:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    env:
+      npm_config_cache: ${{ runner.temp }}/npm-cache-validate
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
