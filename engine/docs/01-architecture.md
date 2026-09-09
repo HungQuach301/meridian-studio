@@ -3,7 +3,8 @@
 ## Ràng buộc nền tảng (không thương lượng)
 
 - Không có máy local. Mọi thao tác qua trình duyệt.
-- ChatGPT Sites **chỉ host tĩnh**: không render video, không chạy job nền, không giữ secret.
+- Trong Meridian, ChatGPT Sites **chỉ dùng để host UI tĩnh**: không render video, không chạy job nền,
+  không giữ secret runtime. Đây là lựa chọn kiến trúc của dự án, không phải mô tả toàn bộ khả năng Sites.
 - Không có server, không có database.
 
 ## Ba mặt phẳng
@@ -82,53 +83,83 @@ GitHub là nguồn sự thật duy nhất. ChatGPT Work là nơi nhận yêu c�
 Loại nghiệm thu và việc cho phép dùng secret/provider được quy định riêng trong
 `13-upgrade-safety.md` và từng WP. Việc chạy CI không tự cấp quyền triển khai.
 
-## Triển khai cockpit — ba phương án
+## Triển khai cockpit — phương án đang kiểm chứng
 
-Vấn đề: ChatGPT Sites không tự kéo file từ GitHub. Nếu dán thẳng cockpit vào Sites thì mỗi lần
-đổi UI là một lần copy-paste thủ công. Ba cách xử lý, xếp theo mức độ ưu tiên.
+### Phương án A · Loader từ repo, bản triển khai tĩnh trên Sites
 
-### Phương án A · Loader một lần (ưu tiên)
+Nguồn chuẩn là `engine/app/loader.html` và `engine/app/cockpit.js` trong
+`HungQuach301/meridian-studio`. Loader nhận token đọc từ chủ dự án, gọi GitHub Contents API
+để tải `engine/app/cockpit.js` và thử thực thi trong trình duyệt.
 
-Dán vào Sites **một lần duy nhất** một trang loader ~60 dòng (`engine/app/loader.html`). Loader không
-chứa logic cockpit — nó chỉ nhận PAT rồi gọi GitHub Contents API để tải `engine/app/cockpit.js` và thực
-thi lúc chạy.
+**Chưa kết luận Sites cho phép thực thi mã động.** WP-003a phải thử trên Site thật và chủ dự án
+nghiệm thu trước khi chốt phương án cho WP-003. Mã thử hiện yêu cầu commit SHA và blob SHA đã
+review, chỉ tải đúng revision đó; không tự theo main. Thử hai revision trên cùng phiên bản
+Sites là bằng chứng bổ sung, không được thay bằng một lần xuất hiện marker thành công.
 
-Từ đó về sau, **mọi thay đổi UI chỉ là commit `engine/app/cockpit.js`**. Không bao giờ dán lại Sites.
-Người dùng reload trang là có bản mới (loader thêm tham số chống cache).
+Chủ dự án đã chấp nhận ngoại lệ giới hạn: kho Git do Sites quản lý chỉ lưu bản sao triển khai
+loader và metadata hosting. Meridian vẫn là nguồn sự thật duy nhất; không phát triển UI độc
+lập, không sao chép state, mã Cockpit hoặc tài liệu kênh sang kho Sites.
 
-- Repo giữ nguyên private. Không lộ mã ra ngoài.
-- Rủi ro: Sites có thể chặn thực thi mã động bằng Content Security Policy. **Chưa xác minh.**
-  Phải chạy `WP-003a` để biết trước khi xây tiếp.
+| Nguồn chuẩn ở Meridian | Bản sao/metadata ở kho nguồn Sites |
+|---|---|
+| `engine/app/loader.html` tại commit được duyệt | `dist/index.html`, nguyên byte |
+| Site ID thực tế do nền tảng cấp | `.openai/hosting.json`, chỉ `project_id` và `static.directory: "dist"` |
 
-### Phương án B · Sites bọc iframe trỏ GitHub Pages (dự phòng)
+Không thêm hai file đóng gói vào repo Meridian. Không thêm framework, bundler, dependency
+hoặc action. Gói tĩnh không dùng Worker ứng dụng, D1, R2, runtime capabilities hoặc migration.
+Mọi chỉnh sửa loader bắt đầu từ PR Meridian, không sửa riêng bản sao Sites.
 
-Nếu A thất bại vì CSP: Sites chỉ chứa một thẻ `<iframe>` trỏ tới GitHub Pages. Một workflow
-Actions tự deploy `engine/app/` lên Pages mỗi khi merge vào `main`. Không cần thực thi mã động, không
-cần copy-paste.
+Chuỗi bằng chứng triển khai phải nối:
+**commit Meridian → hash loader → commit kho nguồn Sites → phiên bản Sites → deployment**.
+SHA kho nguồn Sites có thể khác SHA Meridian; tham số lưu phiên bản phải dùng SHA kho nguồn
+Sites đã đẩy thành công. Archive chỉ chứa `dist/index.html` và
+`dist/.openai/hosting.json` do công cụ đóng gói chuẩn hóa.
 
-- Đổi lại: trang Pages **công khai** ở gói Free (repo vẫn private, nhưng site thì ai có link
-  cũng mở được). Chấp nhận được vì cockpit không chứa secret — PAT nhập lúc chạy, dữ liệu phải
-  có token mới đọc được. Nhưng cấu trúc dự án sẽ lộ.
+Chấp nhận thiết kế bản sao chưa cấp quyền tạo kho/Site, lấy credential, lưu hoặc triển khai.
+Hiện chỉ chuẩn bị PR WP-003a. Các thao tác Sites cần phê duyệt riêng; không bỏ qua quy trình
+nguồn Git bằng cách dán HTML hoặc chỉ gửi archive. Mỗi URL Sites đã triển khai là production,
+kể cả khi chỉ chủ dự án và quản trị viên workspace truy cập được.
 
-### Phương án C · Bỏ Sites, dùng thẳng GitHub Pages
+Tham chiếu vòng đời Sites: https://learn.chatgpt.com/docs/sites
 
-Đơn giản nhất, tự deploy hoàn toàn, không thao tác thủ công nào. Đánh đổi: mất Sites làm cửa vào.
+### Phương án B/C · GitHub Pages — chưa được duyệt
 
-### Quyết định
+B là Sites bọc iframe trỏ Pages; C là dùng trực tiếp Pages.
+Không tự chuyển sang B/C khi A thất bại. Cần chủ dự án quyết định riêng về quyền truy cập,
+khả năng dùng Pages với gói GitHub hiện tại và phạm vi workflow/deploy.
 
-Chạy `engine/ops/work-packages/WP-003a-sites-loader-spike.md` trước WP-003. Kết quả ghi vào
-`engine/engine/docs/02-adr/ADR-0006-cockpit-delivery.md`.
+GitHub Free không cung cấp Pages từ repo private; không giả định repo private có thể giữ
+nguyên trên Free khi dùng Pages. Điều kiện gói và tính công khai của website phải được
+xác minh trước khi đề xuất triển khai:
+https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages
 
-Dù chọn phương án nào, `engine/app/cockpit.js` vẫn phải là **một file duy nhất, không dependency,
-không build step** — ràng buộc này giữ cho cả ba phương án đều khả thi và cho phép đổi phương án
-sau này mà không viết lại UI.
+### Quyết định sau phép thử
+
+WP-003a ở `engine/ops/work-packages/WP-003a-sites-loader-spike.md`.
+Kết quả cuối do chủ dự án viết và chấp nhận tại
+`engine/docs/02-adr/ADR-0006-cockpit-delivery.md`; file này chưa được tạo.
+Đường dẫn có hai lần `engine/` trong tài liệu cũ là dẫn chiếu sai, không phải thư mục mới.
+
+WP-003 hiện còn mô tả copy-paste `index.html`; chưa triển khai theo mô tả đó.
+Sau kết quả, cập nhật WP-003 và runbook bằng phạm vi được duyệt riêng trước khi xây Cockpit.
+
+`engine/app/cockpit.js` giữ một file JavaScript trình duyệt, không dependency và không build
+step theo ràng buộc phân phối UI. Đây không phải thay đổi quy ước TypeScript của stage Engine.
 
 ## Bảo mật
 
-- **Secret nằm ở GitHub Actions Secrets.** Không bao giờ trong code, không bao giờ trong trình duyệt.
-- Cockpit chỉ giữ một **fine-grained PAT**: đúng một repo, hạn 30 ngày, quyền tối thiểu
-  (contents: read/write, actions: write).
-- Đây là điểm yếu bảo mật lớn nhất của mô hình. Chấp nhận có ý thức, xem R3 trong `06-risk-register.md`.
+- Secret của provider nằm ở GitHub Actions Secrets, không đưa vào code, log hoặc trình duyệt.
+- WP-003a dùng fine-grained PAT **chỉ Contents read**, đúng repo Meridian, hạn tối đa 30 ngày.
+  Chủ dự án tự nhập trên Site đã được duyệt; không gửi token vào chat.
+- Token chỉ tồn tại trong bộ nhớ cần cho request. Không lưu localStorage, sessionStorage,
+  cookie, URL hoặc biến môi trường Sites; không đặt token trên `window` cho mã thử.
+- Loader chỉ GET tới `api.github.com`, chặn redirect và không tự retry. Ô token được xóa;
+  reload yêu cầu nhập lại. Giao diện không thể chứng minh token không có quyền dư:
+  chủ dự án phải kiểm quyền khi cấp, không dùng request ghi để kiểm.
+- Credential ngắn hạn do Sites cấp để đẩy bản triển khai là credential kỹ thuật riêng.
+  Chưa được lấy/sử dụng trong bước chuẩn bị PR này và không thay cho PAT đọc của loader.
+- Quyền ghi/Actions cho công việc Cockpit sau này phải được duyệt theo WP tương ứng.
+  WP-003a không cần và không cấp các quyền đó. Xem R3 trong `06-risk-register.md`.
 
 ## Giới hạn phải nhớ
 

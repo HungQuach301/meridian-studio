@@ -1,71 +1,202 @@
-<!-- Dán MỘT LẦN vào ChatGPT Sites. Sau đó không bao giờ dán lại. -->
-<!-- Mọi thay đổi UI về sau chỉ là commit app/cockpit.js lên GitHub. -->
-<div id="meridian-root">
-  <div id="meridian-gate" style="font-family:system-ui;max-width:420px;margin:64px auto;padding:24px">
-    <h2 style="margin:0 0 8px">Meridian Cockpit</h2>
-    <p style="color:#5B6470;font-size:14px;margin:0 0 16px">
-      Nhập fine-grained PAT (chỉ repo meridian-studio, quyền Contents + Actions).
-      Token chỉ nằm trong phiên trình duyệt này.
-    </p>
-    <input id="meridian-pat" type="password" placeholder="github_pat_..."
-           style="width:100%;padding:10px;border:1px solid #5B6470;border-radius:6px;font-size:14px">
-    <button id="meridian-go"
-            style="margin-top:12px;width:100%;padding:10px;border:0;border-radius:6px;
-                   background:#12161C;color:#F7F5F0;font-size:14px;cursor:pointer">
-      Mở cockpit
-    </button>
-    <pre id="meridian-err" style="color:#D93025;font-size:12px;white-space:pre-wrap;margin-top:12px"></pre>
-  </div>
-</div>
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Meridian · Kiểm tra loader</title>
+  <style>
+    body { font: 1rem/1.5 system-ui, sans-serif; margin: 2rem auto; padding: 0 1rem; max-width: 48rem; color: #222; background: #fff; }
+    label { display: block; margin-top: 1rem; }
+    input, select, button { box-sizing: border-box; width: 100%; font: inherit; padding: .65rem; margin-top: .25rem; }
+    button { margin-top: 1.25rem; cursor: pointer; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 1rem; background: #f2f2f2; }
+    #meridian-gate { border-top: 1px solid #aaa; margin-top: 1.5rem; padding-top: 1rem; }
+  </style>
+</head>
+<body>
+  <main id="meridian-root">
+    <h1>Kiểm tra loader Meridian</h1>
+    <p>Chỉ thực hiện lượt thử đã được duyệt. Lấy hai SHA từ hồ sơ review; token chỉ có Contents read của repo meridian-studio.</p>
+    <p id="meridian-boot" role="status">Loader chưa khởi động. Chưa nhập token.</p>
+    <form id="meridian-form" autocomplete="off">
+      <label for="meridian-ref">Commit SHA đã duyệt (40 ký tự)</label>
+      <input id="meridian-ref" type="text" maxlength="40" spellcheck="false" autocomplete="off">
+      <label for="meridian-blob">Blob SHA của engine/app/cockpit.js (40 ký tự)</label>
+      <input id="meridian-blob" type="text" maxlength="40" spellcheck="false" autocomplete="off">
+      <label for="meridian-mode">Cơ chế được duyệt cho lượt này</label>
+      <select id="meridian-mode">
+        <option value="function">Function constructor</option>
+        <option value="inline">Script inline</option>
+      </select>
+      <label for="meridian-pat">Fine-grained PAT — chỉ Contents read</label>
+      <input id="meridian-pat" type="password" autocomplete="off" spellcheck="false" disabled>
+      <button id="meridian-go" type="submit" disabled>Chạy một lượt thử</button>
+    </form>
+    <pre id="meridian-status" role="status" aria-live="polite">Chưa gửi request.</pre>
+    <pre id="meridian-evidence" aria-label="Bằng chứng không chứa token"></pre>
+    <section id="meridian-gate" aria-label="Kết quả từ mã tải về"></section>
+    <p>Mỗi lần mở trang chỉ chạy một lượt. Reload sẽ xóa token; không tự chạy lại hoặc chuyển cơ chế.</p>
+  </main>
+  <script>
+  (() => {
+    "use strict";
+    const owner = "HungQuach301";
+    const repo = "meridian-studio";
+    const path = "engine/app/cockpit.js";
+    const form = document.getElementById("meridian-form");
+    const tokenInput = document.getElementById("meridian-pat");
+    const button = document.getElementById("meridian-go");
+    const status = document.getElementById("meridian-status");
+    const evidence = document.getElementById("meridian-evidence");
+    const gate = document.getElementById("meridian-gate");
+    let attempted = false;
 
-<script>
-(function () {
-  var OWNER = "REPLACE_OWNER";      // <-- điền username GitHub
-  var REPO  = "meridian-studio";
-  var PATH  = "app/cockpit.js";
-  var BRANCH = "main";
+    const messages = {
+      INPUT: "Cần hai SHA đầy đủ, cơ chế hợp lệ và token; chưa gửi request.",
+      ENVIRONMENT: "Cần HTTPS, Fetch, Web Crypto và bộ giải mã UTF-8; chưa gửi request.",
+      FETCH: "Request thất bại hoặc bị chặn redirect. Chưa đủ bằng chứng kết luận CORS/CSP.",
+      TIMEOUT: "Hết 15 giây tải mã. Không tự gửi lại request.",
+      RESPONSE: "Phản hồi không đúng file/path/blob/encoding/kích thước đã duyệt.",
+      DECODE: "Nội dung Base64 hoặc UTF-8 không hợp lệ.",
+      INTEGRITY: "Bytes tải về không khớp blob SHA đã duyệt.",
+      COMPILE: "Không biên dịch được cơ chế đã chọn. Cần đối chiếu bằng chứng CSP; không tự chuyển cơ chế.",
+      CSP: "Có sự kiện CSP enforce chặn cơ chế đã chọn. Không tự chuyển cơ chế.",
+      RUNTIME: "Mã tải về phát sinh lỗi thực thi. Dừng; không chạy lại bằng cơ chế khác.",
+      NO_COMPLETION: "Chưa có tín hiệu hoàn tất từ mã tải về. Chưa đủ bằng chứng kết luận CSP.",
+      INTERNAL: "Không hoàn tất được phép kiểm. Dừng và đối chiếu hồ sơ.",
+    };
+    const fail = (code) => { throw new Error(code); };
+    const hex = (buffer) => Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    const report = (row) => { evidence.textContent += JSON.stringify(row) + "\n"; };
 
-  var err = document.getElementById("meridian-err");
+    tokenInput.value = "";
+    if (!window.isSecureContext || !window.crypto?.subtle || typeof fetch !== "function" ||
+        typeof TextDecoder !== "function" || typeof TextEncoder !== "function" || typeof AbortController !== "function") {
+      document.getElementById("meridian-boot").textContent = "WP003A_ENVIRONMENT: " + messages.ENVIRONMENT;
+      return;
+    }
+    document.getElementById("meridian-boot").textContent = "Loader đã khởi động; chưa gửi request.";
+    tokenInput.disabled = false;
+    button.disabled = false;
+    window.addEventListener("pagehide", () => { tokenInput.value = ""; });
 
-  document.getElementById("meridian-go").onclick = function () {
-    var pat = document.getElementById("meridian-pat").value.trim();
-    if (!pat) { err.textContent = "Chưa nhập token."; return; }
-    err.textContent = "Đang tải cockpit...";
-
-    var url = "https://api.github.com/repos/" + OWNER + "/" + REPO +
-              "/contents/" + PATH + "?ref=" + BRANCH + "&t=" + Date.now();
-
-    fetch(url, {
-      headers: {
-        Authorization: "Bearer " + pat,
-        Accept: "application/vnd.github.v3+json"
-      }
-    })
-    .then(function (r) {
-      if (!r.ok) throw new Error("GitHub API " + r.status + " — kiểm tra token và quyền repo.");
-      return r.json();
-    })
-    .then(function (j) {
-      var code = decodeURIComponent(escape(atob(j.content.replace(/\n/g, ""))));
-      window.MERIDIAN_PAT = pat;
-      window.MERIDIAN_CFG = { owner: OWNER, repo: REPO, branch: BRANCH };
-      // Cách 1: Function constructor
+    async function execute(code, mode) {
+      let cspBlocked = false;
+      let runtimeFailed = false;
+      let compileFailed = false;
+      let script = null;
+      const onCsp = (event) => {
+        const expectedUri = mode === "function" ? "eval" : "inline";
+        if (event.disposition === "enforce" && event.effectiveDirective.startsWith("script-src") && event.blockedURI === expectedUri) {
+          cspBlocked = true;
+          report({ csp: "enforce", directive: event.effectiveDirective, mechanism: mode });
+        }
+      };
+      const onError = (event) => { runtimeFailed = true; event.preventDefault(); };
+      document.addEventListener("securitypolicyviolation", onCsp);
+      window.addEventListener("error", onError);
+      window.addEventListener("unhandledrejection", onError);
       try {
-        new Function(code)();
-        return;
-      } catch (e1) {
-        // Cách 2: chèn thẻ script inline
-        var s = document.createElement("script");
-        s.textContent = code;
-        document.body.appendChild(s);
+        if (mode === "function") {
+          let run;
+          try { run = new Function(code); } catch { compileFailed = true; }
+          if (run) {
+            try { run(); } catch { runtimeFailed = true; }
+          }
+        } else {
+          script = document.createElement("script");
+          script.textContent = code;
+          try { document.body.appendChild(script); } catch { compileFailed = true; }
+        }
+        // Allow policy/error events to arrive; the approved probe itself is synchronous.
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        if (runtimeFailed) fail("RUNTIME");
+        if (cspBlocked) fail("CSP");
+        if (compileFailed) fail("COMPILE");
+        if (gate.dataset.wp003aComplete !== "true" || !gate.dataset.wp003aRevision || !gate.textContent.trim()) fail("NO_COMPLETION");
+      } finally {
+        document.removeEventListener("securitypolicyviolation", onCsp);
+        window.removeEventListener("error", onError);
+        window.removeEventListener("unhandledrejection", onError);
+        if (script) script.remove();
       }
-    })
-    .catch(function (e) {
-      err.textContent =
-        "LỖI: " + e.message +
-        "\n\nNếu lỗi nhắc tới Content Security Policy hoặc 'unsafe-eval', " +
-        "nghĩa là ChatGPT Sites chặn nạp mã động. Chuyển sang Phương án B (iframe -> GitHub Pages).";
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (attempted) return;
+      const ref = document.getElementById("meridian-ref").value.trim();
+      const blob = document.getElementById("meridian-blob").value.trim();
+      const mode = document.getElementById("meridian-mode").value;
+      let token = tokenInput.value.trim();
+      tokenInput.value = "";
+      if (!/^[a-f0-9]{40}$/.test(ref) || !/^[a-f0-9]{40}$/.test(blob) || !["function", "inline"].includes(mode) || !token) {
+        token = "";
+        status.textContent = "WP003A_INPUT: " + messages.INPUT;
+        return;
+      }
+      attempted = true;
+      for (const control of form.elements) control.disabled = true;
+      gate.replaceChildren();
+      delete gate.dataset.wp003aComplete;
+      delete gate.dataset.wp003aRevision;
+      const startedAt = new Date().toISOString();
+      report({ repository: owner + "/" + repo, path, ref, expectedBlob: blob, mechanism: mode, startedAt });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      let outcome = "WP003A_INTERNAL";
+      try {
+        status.textContent = "Đang tải và kiểm tra mã...";
+        const url = "https://api.github.com/repos/" + owner + "/" + repo + "/contents/" + path + "?ref=" + ref;
+        let response;
+        try {
+          response = await fetch(url, {
+            method: "GET", mode: "cors", credentials: "omit", cache: "no-store", redirect: "error", referrerPolicy: "no-referrer",
+            headers: { Authorization: "Bearer " + token, Accept: "application/vnd.github+json" }, signal: controller.signal,
+          });
+        } catch { fail(controller.signal.aborted ? "TIMEOUT" : "FETCH"); }
+        finally { token = ""; }
+        report({ httpStatus: response.status });
+        if (response.status !== 200) fail("HTTP_" + response.status);
+        let file;
+        try { file = await response.json(); } catch { fail(controller.signal.aborted ? "TIMEOUT" : "RESPONSE"); }
+        clearTimeout(timer);
+        if (!file || file.type !== "file" || file.path !== path || file.sha !== blob || file.encoding !== "base64" ||
+            !Number.isInteger(file.size) || file.size < 1 || file.size > 65536 || typeof file.content !== "string" || file.content.length > 100000) fail("RESPONSE");
+        let bytes;
+        let code;
+        try {
+          const encoded = file.content.replace(/\s/g, "");
+          if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) fail("DECODE");
+          bytes = Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
+          code = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+        } catch { fail("DECODE"); }
+        if (bytes.length !== file.size) fail("RESPONSE");
+        const header = new TextEncoder().encode("blob " + bytes.length + "\0");
+        const gitBytes = new Uint8Array(header.length + bytes.length);
+        gitBytes.set(header);
+        gitBytes.set(bytes, header.length);
+        const actualBlob = hex(await crypto.subtle.digest("SHA-1", gitBytes));
+        if (actualBlob !== blob) fail("INTEGRITY");
+        report({ verifiedBlob: actualBlob, codeSha256: hex(await crypto.subtle.digest("SHA-256", bytes)) });
+        status.textContent = "Nguồn khớp; đang thử cơ chế đã chọn...";
+        await execute(code, mode);
+        outcome = "WP003A_EXECUTED";
+        status.textContent = outcome + ": Đã nhận tín hiệu thực thi; chủ dự án đối chiếu kết quả và UTF-8 bên dưới.";
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "INTERNAL";
+        const http = /^HTTP_[1-5][0-9]{2}$/.test(code);
+        const safeCode = http || Object.hasOwn(messages, code) ? code : "INTERNAL";
+        outcome = "WP003A_" + safeCode;
+        status.textContent = outcome + ": " + (http ? "GitHub không trả HTTP 200. Kiểm tra truy cập/path/ref; không tự đổi quyền hoặc thử lại." : messages[safeCode]);
+      } finally {
+        token = "";
+        tokenInput.value = "";
+        clearTimeout(timer);
+        report({ outcome, finishedAt: new Date().toISOString() });
+      }
     });
-  };
-})();
-</script>
+  })();
+  </script>
+</body>
+</html>
