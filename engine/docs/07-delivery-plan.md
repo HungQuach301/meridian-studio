@@ -38,12 +38,13 @@ các tài liệu. Đây là lúc tốn công đọc nhất — đừng bỏ qua.
 
 | # | Bước | Outcome | Định nghĩa hoàn thành |
 |---|---|---|---|
-| 1.1 | WP-001 Codex scaffold cấu trúc | Cây thư mục + package.json | Cây khớp `01-architecture.md`, `npm install` chạy được |
-| 1.2 | WP-002 CI validate schema | PR sai schema bị chặn | Cố tình push JSON sai → CI đỏ |
-| 1.3 | WP-003 Workflow `hello.yml` | Actions chạy được | Trigger thủ công → job xanh |
-| 1.4 | WP-004 UI shell trên Sites | Trang mở được, đọc `pipeline/state.json` | Truy cập slug thấy danh sách episode (rỗng) |
-| 1.5 | WP-005 Nút dispatch từ UI | UI bắn được `repository_dispatch` | Bấm nút → job xuất hiện trong tab Actions |
-| 1.6 | Nạp secret vào Actions Secrets | Không secret trong code | `git grep -iE "sk-\|ghp_\|AIza"` không ra kết quả |
+| 1.1 | WP-000 Scaffold cấu trúc dự án | Cây thư mục + package.json | Nghiệm thu scaffold và CI được ghi tại dòng WP-000 trong backlog |
+| 1.2 | WP-001 CI hardening | Validate, typecheck và guardrails | Nghiệm thu CI được ghi tại dòng WP-001 trong backlog |
+| 1.3 | WP-002 Workflow hello + dispatch | Heartbeat và vòng gửi/nhận trong GitHub | PR #7 và ba run thật đã được chủ dự án nghiệm thu; chưa chứng minh client ngoài GitHub |
+| 1.3a | WP-003a Spike loader Sites | Có bằng chứng nạp/thực thi mã động hoặc kết luận bị chặn | Chủ dự án thử Site thật, chấp nhận ADR-0006 và cập nhật WP-003; giới hạn 2 giờ |
+| 1.4 | WP-003 Cockpit UI shell | Đọc và hiển thị pipeline state | Sau WP-001 và WP-003a; theo phương án được duyệt, hiển thị đúng trạng thái rỗng |
+| 1.5 | WP-004 Nút dispatch từ UI | Client ngoài GitHub kích hoạt được workflow | Sau WP-002 và WP-003; bằng chứng thực thi riêng, không dùng lại nghiệm thu WP-002 |
+| 1.6 | Nạp secret vào Actions Secrets khi WP tương ứng cần | Không secret trong code | Chủ dự án duyệt riêng; agent kiểm mã, không yêu cầu chủ dự án chạy lệnh |
 
 **DoD Wave 1:** anh bấm một nút trên trình duyệt, một job chạy, ghi một file vào repo, UI hiển thị
 file đó. Chưa có nội dung gì — chỉ có vòng điều khiển.
