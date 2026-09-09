@@ -77,10 +77,29 @@ jobs:
             requireValue(value !== null && typeof value === 'object' && !Array.isArray(value), code);
             return value as RecordValue;
           }
-          function read(path: string, code: string): unknown {
+          function readText(path: string, code: string): string {
             const text = ts.sys.readFile(path);
             requireValue(text !== undefined, code);
+            return text;
+          }
+          function parse(text: string, code: string): unknown {
             try { return JSON.parse(text) as unknown; } catch { throw new Error(code); }
+          }
+          function read(path: string, code: string): unknown {
+            return parse(readText(path, code), code);
+          }
+          function timestampSpan(text: string): { start: number; end: number } {
+            // JSON.parse validates syntax before this AST locates the root timestamp.
+            const source = ts.parseJsonText('pipeline-state.json', text);
+            const statement = source.statements[0];
+            requireValue(source.statements.length === 1 && statement !== undefined &&
+              ts.isExpressionStatement(statement) && ts.isObjectLiteralExpression(statement.expression), 'WP002_TIMESTAMP_PROPERTY');
+            const properties = statement.expression.properties.filter((property): property is ts.PropertyAssignment =>
+              ts.isPropertyAssignment(property) && ts.isStringLiteral(property.name) && property.name.text === 'updatedAt');
+            const property = properties[0];
+            requireValue(properties.length === 1 && property !== undefined &&
+              ts.isStringLiteral(property.initializer), 'WP002_TIMESTAMP_PROPERTY');
+            return { start: property.initializer.getStart(source), end: property.initializer.end };
           }
           function admission(args: string[]): void {
             const [path, eventName, ref, sha, attempt, repository] = args;
@@ -115,18 +134,23 @@ jobs:
             const ajv = new Ajv2020({ allErrors: true, strict: true });
             addFormats(ajv);
             const validate = ajv.compile(schema as AnySchema);
-            const before = object(read(beforePath, 'WP002_STATE_JSON'), 'WP002_STATE_SCHEMA');
+            const beforeText = readText(beforePath, 'WP002_STATE_JSON');
+            const before = object(parse(beforeText, 'WP002_STATE_JSON'), 'WP002_STATE_SCHEMA');
             requireValue(validate(before), 'WP002_STATE_SCHEMA');
-            const after = command === 'prepare'
-              ? { ...before, updatedAt: timestamp }
-              : object(read(afterPath, 'WP002_STATE_JSON'), 'WP002_STATE_SCHEMA');
+            const beforeSpan = timestampSpan(beforeText);
+            requireValue(command !== 'prepare' || typeof timestamp === 'string', 'WP002_ARGUMENTS');
+            // Splice only the timestamp token; never serialize parsed state numbers.
+            const afterText = command === 'prepare'
+              ? beforeText.slice(0, beforeSpan.start) + JSON.stringify(timestamp) + beforeText.slice(beforeSpan.end)
+              : readText(afterPath, 'WP002_STATE_JSON');
+            const after = object(parse(afterText, 'WP002_STATE_JSON'), 'WP002_STATE_SCHEMA');
             requireValue(validate(after), 'WP002_STATE_SCHEMA');
             requireValue(typeof after.updatedAt === 'string' && typeof before.updatedAt === 'string', 'WP002_TIMESTAMP');
             requireValue(Number.isFinite(Date.parse(after.updatedAt)) && Date.parse(after.updatedAt) > Date.parse(before.updatedAt), 'WP002_TIMESTAMP');
-            const { updatedAt: ignoredBefore, ...restBefore } = before;
-            const { updatedAt: ignoredAfter, ...restAfter } = after;
-            requireValue(JSON.stringify(restBefore) === JSON.stringify(restAfter), 'WP002_STATE_DELTA');
-            if (command === 'prepare') ts.sys.writeFile(afterPath, JSON.stringify(after, null, 2) + '\n');
+            const afterSpan = timestampSpan(afterText);
+            requireValue(beforeText.slice(0, beforeSpan.start) === afterText.slice(0, afterSpan.start) &&
+              beforeText.slice(beforeSpan.end) === afterText.slice(afterSpan.end), 'WP002_STATE_DELTA');
+            if (command === 'prepare') ts.sys.writeFile(afterPath, afterText);
             ts.sys.write('PASS ' + command.toUpperCase() + ' updatedAt ' + before.updatedAt + ' -> ' + after.updatedAt + '\n');
           }
           try {
@@ -210,6 +234,44 @@ jobs:
           run('reject-other-field-change', ['verify', schema, before, invalid], 1, /WP002_STATE_DELTA/);
           writeFileSync(invalid, JSON.stringify({ updatedAt: timestamp }));
           run('reject-invalid-candidate', ['verify', schema, before, invalid], 1, /WP002_STATE_SCHEMA/);
+          // Raw JSON is essential: JavaScript number literals would round before the worker sees them.
+          const rawInput = String.raw`{
+            "unknownField": {
+              "updatedAt": "2026-01-01T00:00:00Z",
+              "externalId": 9007199254740993,
+              "decimal": 0.12345678901234567890123456789,
+              "huge": 1e400,
+              "tiny": 1e-400,
+              "negativeZero": -0,
+              "text": "literal \"updatedAt\": [1, {\"n\": 2}] \\ \u0030 😀"
+            },
+            "\u0075pdatedAt"   : "2026-01-01T00:00:00Z",
+            "monthlySpendUsd": 0.12345678901234567890123456789,
+            "episodes": []
+          }
+          `.replace(/\n/g, '\r\n');
+          const rawExpected = rawInput.replace(
+            String.raw`"\u0075pdatedAt"   : "2026-01-01T00:00:00Z"`,
+            String.raw`"\u0075pdatedAt"   : "2026-09-09T00:00:00.000Z"`);
+          const rawBefore = join(dir, 'raw-before.json');
+          const rawAfter = join(dir, 'raw-after.json');
+          writeFileSync(rawBefore, rawInput);
+          run('raw-number-preservation', ['prepare', schema, rawBefore, rawAfter, timestamp]);
+          assert.deepEqual(readFileSync(rawAfter), Buffer.from(rawExpected));
+          assert.deepEqual(readFileSync(rawBefore), Buffer.from(rawInput));
+          run('raw-candidate-verifies', ['verify', schema, rawBefore, rawAfter]);
+          for (const [name, candidate] of [
+            ['rounded-integer-refused', rawExpected.replace('9007199254740993', '9007199254740992')],
+            ['rounded-decimal-refused', rawExpected.replaceAll('0.12345678901234567890123456789', '0.12345678901234568')],
+          ]) {
+            assert.deepEqual(JSON.parse(candidate), JSON.parse(rawExpected));
+            writeFileSync(invalid, candidate);
+            run(name, ['verify', schema, rawBefore, invalid], 1, /WP002_STATE_DELTA/);
+          }
+          writeFileSync(invalid, String.raw`{"updatedAt":"2026-01-01T00:00:00Z","\u0075pdatedAt":"2026-01-01T00:00:00Z","episodes":[]}`);
+          const ambiguousOutput = join(dir, 'ambiguous-output.json');
+          run('ambiguous-root-timestamp-refused', ['prepare', schema, invalid, ambiguousOutput, timestamp], 1, /WP002_TIMESTAMP_PROPERTY/);
+          assert.equal(existsSync(ambiguousOutput), false);
           const sha = 'a'.repeat(40);
           const repository = { full_name: 'HungQuach301/meridian-studio', default_branch: 'main' };
           const manual = { repository, inputs: { mode: 'heartbeat', expected_sha: sha } };
@@ -234,7 +296,7 @@ jobs:
           admit('missing-input-sha', { ...manual, inputs: { mode: 'heartbeat' } }, undefined, undefined, undefined, undefined, undefined, 'WP002_ADMISSION_SHA');
           admit('missing-binding', { ...receipt, client_payload: { expected_sha: sha } }, 'repository_dispatch', undefined, undefined, undefined, undefined, 'WP002_ADMISSION_BINDING');
           admit('malformed-payload', '{', undefined, undefined, undefined, undefined, undefined, 'WP002_ADMISSION_JSON');
-          assert.equal(count, 25);
+          assert.equal(count, 30);
           assert.deepEqual(readFileSync(join(root, 'pipeline/state.json')), original);
           rmSync(dir, { recursive: true });
           console.log('PASS WP002_FIXTURES ' + count + '; repository state unchanged; no dispatch');
