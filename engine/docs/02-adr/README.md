@@ -12,3 +12,4 @@ Quy tắc: agent KHÔNG được tự viết ADR. Chỉ chủ dự án viết. A
 | 0003 | Repo làm state store, không dùng database | Chấp nhận |
 | 0004 | Binary lưu ở GitHub Releases | Chấp nhận |
 | 0005 | Ba gate người, không nhiều hơn | Chấp nhận |
+| [0006](ADR-0006-cockpit-delivery.md) | Loader tĩnh trên Sites, thực thi bằng Function constructor; chủ dự án đã duyệt nội dung | Chấp nhận |

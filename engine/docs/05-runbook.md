@@ -138,17 +138,51 @@ Artifact của các stage sau sẽ bị đánh dấu stale.
 
 Không bao giờ force push lên `main`.
 
-## Triển khai lại cockpit
+## Loader Sites và Cockpit (WP-003a / WP-003)
 
-Phụ thuộc phương án đã chốt ở ADR-0006:
+[ADR-0006](02-adr/ADR-0006-cockpit-delivery.md) đã được chủ dự án chấp nhận.
+[Hồ sơ WP-003a](../ops/work-packages/WP-003a-sites-loader-spike.md#10-hồ-sơ-kết-luận-đã-nghiệm-thu)
+ghi một lượt Function constructor trên Sites v1: HTTP 200, blob khớp,
+`WP003A_EXECUTED`, `Loader OK` và UTF-8 đúng, bằng Google Chrome.
+Token chỉ Contents read và đã xóa theo xác nhận chủ dự án. Lượt thử đã dùng hết quyền.
 
-| Phương án | Cách cập nhật UI |
-|---|---|
-| A · Loader | Commit `engine/app/cockpit.js`. Xong. Reload trang Sites là thấy bản mới |
-| B · iframe → Pages | Merge PR. Actions tự deploy. Xong |
-| C · Pages | Merge PR. Actions tự deploy. Xong |
+### Review và đóng gói nguồn
 
-Chỉ Phương án A cần dán Sites, và chỉ đúng **một lần** lúc thiết lập ban đầu.
+1. Chủ dự án duyệt riêng phạm vi; agent xác minh main/tree/state/CI/lịch sử Meridian.
+2. Bản sao nguồn Sites chỉ có `dist/index.html` nguyên byte từ loader đã duyệt và
+   `.openai/hosting.json` với đúng project ID/static.directory. Không phát triển UI tại Sites.
+3. Agent đối chiếu hash loader rồi đẩy hai file bằng credential nguồn ngắn hạn trong
+   giai đoạn được duyệt. Không yêu cầu chủ dự án dùng terminal hoặc gửi credential vào chat.
+4. Đóng gói theo công cụ hiện có; archive chỉ có `dist/index.html` và
+   `dist/.openai/hosting.json`. Gắn phiên bản với commit nguồn Sites đã push.
+5. Chủ dự án review chuỗi Meridian commit → loader hash → Sites commit → version.
+   Lưu phiên bản và triển khai là hai thao tác cần quyền riêng; không tự tạo phiên bản mới.
+6. Trước triển khai đúng version được duyệt, đối soát slug/project ID và quyền chia sẻ
+   riêng tư chỉ chủ sở hữu. Đối soát lại deployment/version/quyền sau triển khai.
+
+### Một lượt kiểm Site khi được duyệt riêng
+
+1. Mở Site riêng tư, kiểm loader đã khởi động. Không nhập token nếu trang lỗi.
+2. Lấy commit Meridian và blob `engine/app/cockpit.js` từ hồ sơ review, không lấy commit Sites.
+3. Chọn đúng cơ chế được duyệt; chủ dự án tự nhập token chỉ Contents read và chạy một lượt.
+4. Lưu log không chứa token: repo/path/ref, expected/verified blob, code SHA-256,
+   HTTP status, outcome, thời gian và trình duyệt; đối chiếu nội dung hiển thị.
+5. Gửi ảnh vùng kết quả không chứa token và xác nhận nghiệm thu; không gửi HAR/Authorization.
+6. Kết quả lỗi hoặc chưa rõ: dừng, báo bằng chứng; không bấm lại, reload để thử thêm,
+   đổi Script inline, đổi quyền, dispatch/rerun hoặc tự chuyển Pages.
+
+Các bước trên mô tả quy trình, không cấp thêm lượt thử. Site v1 đã thử thành công;
+đợt đồng bộ tài liệu không thao tác Sites hoặc dùng token.
+
+### Cập nhật Cockpit và giới hạn
+
+Commit mã mới không làm loader tự theo main. Phải xác minh commit/blob được phép nạp;
+quy trình cập nhật và token đọc state thuộc WP-003. Nếu thay loader thì review Meridian
+trước, rồi xin duyệt đồng bộ nguồn/lưu version/triển khai riêng. Không dán toàn bộ UI vào Sites.
+
+Chưa kiểm Script inline, reload/xóa token trên Site thật, hai revision cùng Sites version,
+trình duyệt khác, UI đọc state hoặc client dispatch WP-004. Không coi việc cấu hình token
+trong bộ nhớ là bằng chứng đã thử reload; không coi CI/sandbox là phép thử Site thật.
 
 ## Xoay secret
 
