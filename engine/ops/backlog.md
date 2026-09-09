@@ -6,7 +6,7 @@ Một WP = một task Codex = một PR. Không giao hai WP trong một task.
 |---|---|---|---|---|
 | WP-000 | **Scaffold cấu trúc dự án — VIỆC ĐẦU TIÊN** | 1 | — | done — [PR #5](https://github.com/HungQuach301/meridian-studio/pull/5); [acceptance Loại 2 đạt](https://github.com/HungQuach301/meridian-studio/actions/runs/34292799413); [CI main đạt](https://github.com/HungQuach301/meridian-studio/actions/runs/34300050168) |
 | WP-VAL-001 | Kiểm giả định khán giả (tuỳ chọn, song song) | 0–2 | — | optional |
-| WP-001 | CI validate schema | 1 | WP-000 | todo |
+| WP-001 | CI hardening | 1 | WP-000 | review — [PR #6](https://github.com/HungQuach301/meridian-studio/pull/6); [acceptance Loại 2 đạt](https://github.com/HungQuach301/meridian-studio/actions/runs/34305069390) |
 | WP-002 | Workflow hello + dispatch | 1 | WP-000 | todo |
 | WP-003a | **Spike:** Sites có nạp mã động không | 1 | WP-000 | todo |
 | WP-003 | Cockpit UI shell | 1 | WP-001, WP-003a | todo |

@@ -5,6 +5,7 @@ on:
     branches:
       - '**'
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 permissions:
   contents: read
@@ -23,10 +24,15 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Select npm cache directory for validation
+        run: echo "npm_config_cache=$RUNNER_TEMP/npm-cache-validate" >> "$GITHUB_ENV"
+
       - name: Set up Node 20
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
+          cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Verify runtime and source
         run: |
@@ -35,6 +41,8 @@ jobs:
           node -e "if (process.versions.node.split('.')[0] !== '20') process.exit(1)"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git rev-parse HEAD
+          sha256sum pipeline/state.json package-lock.json > "$RUNNER_TEMP/protected-before.sha256"
+          git ls-files -z engine/contracts/ | xargs -0 sha256sum >> "$RUNNER_TEMP/protected-before.sha256"
 
       - name: Install locked dependencies
         run: npm ci
@@ -61,6 +69,44 @@ jobs:
       - name: Validate repository JSON
         run: npm run validate
 
+      - name: Verify validator CLI with temporary state
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { spawnSync } from 'node:child_process';
+          import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+          import { join } from 'node:path';
+
+          const root = process.env.GITHUB_WORKSPACE;
+          const fixture = mkdtempSync(join(process.env.RUNNER_TEMP, 'wp001-schema-'));
+          const original = readFileSync(join(root, 'pipeline/state.json'));
+          try {
+            mkdirSync(join(fixture, 'engine'), { recursive: true });
+            mkdirSync(join(fixture, 'pipeline'));
+            mkdirSync(join(fixture, 'episodes'));
+            cpSync(join(root, 'engine/contracts'), join(fixture, 'engine/contracts'), { recursive: true });
+            const run = (name, expected, pattern) => {
+              const result = spawnSync(process.execPath, [join(root, 'node_modules/tsx/dist/cli.mjs'),
+                join(root, 'scripts/validate-schemas.ts')], { cwd: fixture, encoding: 'utf8', timeout: 30_000 });
+              assert.ifError(result.error);
+              const output = result.stdout + result.stderr;
+              assert.equal(result.status, expected, name + '\n' + output);
+              assert.match(output, pattern);
+              console.log('PASS FIXTURE ' + name + ' expected exit ' + expected + '\n' + output.trim());
+            };
+            writeFileSync(join(fixture, 'pipeline/state.json'), original);
+            run('valid-state-cli', 0, /Validated 1 JSON file\(s\); 0 failure\(s\)/);
+            const invalid = JSON.parse(original);
+            delete invalid.episodes;
+            writeFileSync(join(fixture, 'pipeline/state.json'), JSON.stringify(invalid));
+            run('invalid-state-cli', 1, /required property 'episodes'/);
+            assert.deepEqual(readFileSync(join(root, 'pipeline/state.json')), original);
+            console.log('PASS SCHEMA_FIXTURES 2; repository state unchanged');
+          } finally {
+            rmSync(fixture, { recursive: true, force: true });
+          }
+          NODE
+
       - name: Verify source files remain unchanged
         if: always()
         run: |
@@ -68,6 +114,7 @@ jobs:
           git diff --cached --exit-code
           test -z "$(git ls-files --others --exclude-standard)"
           test ! -e src
+          sha256sum --check "$RUNNER_TEMP/protected-before.sha256"
           sha256sum pipeline/state.json package-lock.json
           echo "PASS source files unchanged; no untracked files or src"
 
@@ -84,6 +131,8 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
+          cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Verify runtime and source
         run: |
@@ -92,6 +141,8 @@ jobs:
           node -e "if (process.versions.node.split('.')[0] !== '20') process.exit(1)"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git rev-parse HEAD
+          sha256sum pipeline/state.json package-lock.json > "$RUNNER_TEMP/protected-before.sha256"
+          git ls-files -z engine/contracts/ | xargs -0 sha256sum >> "$RUNNER_TEMP/protected-before.sha256"
 
       - name: Install locked dependencies
         run: npm ci
@@ -106,5 +157,301 @@ jobs:
           git diff --cached --exit-code
           test -z "$(git ls-files --others --exclude-standard)"
           test ! -e src
+          sha256sum --check "$RUNNER_TEMP/protected-before.sha256"
+          sha256sum pipeline/state.json package-lock.json
+          echo "PASS source files unchanged; no untracked files or src"
+
+  guardrails:
+    name: ${{ github.event_name == 'pull_request' && 'guardrails' || 'guardrails-push' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node 20
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+
+      - name: Verify runtime and source
+        run: |
+          node --version
+          npm --version
+          node -e "if (process.versions.node.split('.')[0] !== '20') process.exit(1)"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git rev-parse HEAD
+          sha256sum pipeline/state.json package-lock.json > "$RUNNER_TEMP/protected-before.sha256"
+          git ls-files -z engine/contracts/ | xargs -0 sha256sum >> "$RUNNER_TEMP/protected-before.sha256"
+
+      - name: Prepare guardrail checker in runner temporary directory
+        run: |
+          cat > "$RUNNER_TEMP/wp001-guardrails.mjs" <<'NODE'
+          import assert from 'node:assert/strict';
+          import { spawnSync } from 'node:child_process';
+          import { readFileSync } from 'node:fs';
+
+          const limit = 5_000_000;
+          const decoder = new TextDecoder('utf-8', { fatal: true });
+          const shaPattern = /^[0-9a-f]{40}$/;
+          const zero = '0'.repeat(40);
+
+          function git(args, input) {
+            const result = spawnSync('git', args, {
+              cwd: process.env.GITHUB_WORKSPACE,
+              input,
+              maxBuffer: 64 * 1024 * 1024,
+              timeout: 30_000,
+            });
+            assert.ifError(result.error);
+            assert.equal(result.status, 0, 'Git command failed: ' + args[0]);
+            return decoder.decode(result.stdout);
+          }
+
+          function commit(value) {
+            assert.ok(typeof value === 'string' && shaPattern.test(value) && value !== zero, 'Invalid commit SHA');
+            assert.equal(git(['cat-file', '-t', value]).trim(), 'commit', 'Missing commit object');
+            return value;
+          }
+
+          function nulFields(output) {
+            if (output === '') return [];
+            assert.ok(output.endsWith('\0'), 'Truncated Git output');
+            return output.slice(0, -1).split('\0');
+          }
+
+          function changesBetween(base, head) {
+            const fields = nulFields(git(['diff', '--raw', '--no-abbrev', '-z', '--no-ext-diff',
+              '--no-textconv', '--find-renames', base, head, '--']));
+            const changes = [];
+            for (let i = 0; i < fields.length;) {
+              const match = /^:[0-7]{6} [0-7]{6} [0-9a-f]{40} ([0-9a-f]{40}) ([AMDT]|[RC][0-9]+)$/.exec(fields[i++]);
+              assert.ok(match, 'Invalid raw diff record');
+              const status = match[2][0];
+              const first = fields[i++];
+              const second = status === 'R' || status === 'C' ? fields[i++] : first;
+              assert.ok(first && second, 'Missing diff path');
+              changes.push({ status, oldPath: status === 'A' ? null : first,
+                path: status === 'D' ? null : second, oid: match[1] });
+            }
+            return changes;
+          }
+
+          function allFiles(head) {
+            return nulFields(git(['ls-tree', '-r', '-z', '--full-tree', head])).map((record) => {
+              const match = /^[0-7]{6} (blob|commit) ([0-9a-f]{40})\t([\s\S]+)$/.exec(record);
+              assert.ok(match, 'Invalid tree record');
+              return { status: 'A', oldPath: null, path: match[3], oid: match[2] };
+            });
+          }
+
+          function main() {
+            assert.ok(process.env.GITHUB_WORKSPACE && process.env.GITHUB_EVENT_PATH, 'Missing event context');
+            const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+            const source = commit(process.env.GITHUB_SHA);
+            assert.equal(git(['rev-parse', 'HEAD']).trim(), source, 'Checkout SHA mismatch');
+            const kind = process.env.GITHUB_EVENT_NAME;
+            let head;
+            let base;
+            let labels = [];
+            let changes;
+            if (kind === 'pull_request') {
+              assert.ok(['opened', 'synchronize', 'reopened', 'labeled', 'unlabeled'].includes(event.action), 'Invalid PR action');
+              const pr = event.pull_request;
+              base = commit(pr?.base?.sha);
+              head = commit(pr?.head?.sha);
+              assert.ok(Array.isArray(pr.labels) && pr.labels.every((label) => typeof label?.name === 'string'), 'Invalid PR labels');
+              labels = pr.labels.map((label) => label.name);
+              const ancestor = commit(git(['merge-base', '--all', base, head]).trim());
+              changes = changesBetween(ancestor, head);
+            } else if (kind === 'push') {
+              head = commit(event.after);
+              assert.equal(head, source, 'Push SHA mismatch');
+              assert.ok(typeof event.before === 'string' && shaPattern.test(event.before), 'Invalid push before SHA');
+              if (event.before === zero) {
+                assert.equal(event.created, true, 'Zero before SHA requires a new branch');
+                base = zero;
+                changes = allFiles(head);
+              } else {
+                base = commit(event.before);
+                changes = changesBetween(base, head);
+              }
+            } else {
+              throw new Error('Unsupported event');
+            }
+            console.log('EVENT_CONTEXT ' + JSON.stringify({ event: kind, action: event.action ?? 'push', base, head, source, labels }));
+            let failures = 0;
+            for (const change of changes) {
+              const touchesContract = [change.oldPath, change.path].some((path) => path?.startsWith('engine/contracts/'));
+              if (kind === 'pull_request' && touchesContract && !labels.includes('contract-change')) {
+                console.error('FAIL CONTRACT_CHANGE_REQUIRES_LABEL ' + JSON.stringify(change));
+                failures++;
+              }
+            }
+            const files = changes.filter((change) => change.path !== null);
+            if (files.length > 0) {
+              const records = git(['cat-file', '--batch-check=%(objectname) %(objecttype) %(objectsize)'],
+                files.map((file) => file.oid).join('\n') + '\n').trimEnd().split('\n');
+              assert.equal(records.length, files.length, 'Missing blob sizes');
+              records.forEach((record, index) => {
+                const [oid, type, bytes] = record.split(' ');
+                assert.equal(oid, files[index].oid, 'Blob SHA mismatch');
+                assert.equal(type, 'blob', 'Changed entry is not a readable file blob');
+                assert.ok(/^\d+$/.test(bytes) && Number.isSafeInteger(Number(bytes)), 'Invalid blob size');
+                if (Number(bytes) > limit) {
+                  console.error('FAIL FILE_TOO_LARGE ' + JSON.stringify({ path: files[index].path, bytes: Number(bytes), limit }));
+                  failures++;
+                }
+              });
+            }
+            if (failures > 0) return 1;
+            console.log('PASS GUARDRAILS changed=' + changes.length + ' sizeLimit=' + limit);
+            return 0;
+          }
+
+          try {
+            process.exitCode = main();
+          } catch (error) {
+            console.error('ERROR GUARDRAILS_INPUT ' + (error instanceof Error ? error.message : String(error)));
+            process.exitCode = 2;
+          }
+          NODE
+
+      - name: Check event changes
+        run: node "$RUNNER_TEMP/wp001-guardrails.mjs"
+
+      - name: Exercise guardrail fixtures
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { spawnSync } from 'node:child_process';
+          import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+          import { dirname, join } from 'node:path';
+
+          const fixtureRoot = mkdtempSync(join(process.env.RUNNER_TEMP, 'wp001-policy-'));
+          const checker = join(process.env.RUNNER_TEMP, 'wp001-guardrails.mjs');
+          let passed = 0;
+
+          function check(name, options = {}) {
+            const dir = join(fixtureRoot, name);
+            mkdirSync(dir);
+            const git = (...args) => {
+              const result = spawnSync('git', ['-c', 'user.name=CI Fixture',
+                '-c', 'user.email=ci-fixture@example.invalid', '-c', 'commit.gpgsign=false', ...args],
+                { cwd: dir, encoding: 'utf8', timeout: 30_000 });
+              assert.ifError(result.error);
+              assert.equal(result.status, 0, name + ': ' + result.stderr);
+              return result.stdout.trim();
+            };
+            const write = (path, data) => {
+              mkdirSync(dirname(join(dir, path)), { recursive: true });
+              writeFileSync(join(dir, path), data);
+            };
+            const commit = () => { git('add', '--all'); git('commit', '-qm', 'Fixture change', '--allow-empty'); return git('rev-parse', 'HEAD'); };
+            git('init', '-q', '-b', 'fixture');
+            write('README.md', 'fixture\n');
+            write('engine/contracts/fixture.schema.json', '{}\n');
+            write('outside.json', '{"fixture":true}\n');
+            write('small.txt', 'small\n');
+            const context = { dir, write, git, commit };
+            options.seed?.(context);
+            let base = commit();
+            options.change?.(context);
+            const head = commit();
+            if (options.divergedBase) {
+              git('checkout', '-qb', 'base-side', base);
+              write('engine/contracts/base-only.schema.json', '{}\n');
+              base = commit();
+              git('checkout', '-q', 'fixture');
+            }
+            const kind = options.kind ?? 'pull_request';
+            const event = kind === 'pull_request'
+              ? { action: 'synchronize', pull_request: { base: { sha: base }, head: { sha: head },
+                  labels: (options.labels ?? []).map((label) => ({ name: label })) } }
+              : { before: options.created ? '0'.repeat(40) : base, after: head, created: options.created ?? false };
+            options.event?.(event);
+            const eventPath = join(fixtureRoot, name + '.json');
+            writeFileSync(eventPath, options.malformed ? '{' : JSON.stringify(event));
+            const result = spawnSync(process.execPath, [checker], {
+              cwd: dir, encoding: 'utf8', timeout: 30_000,
+              env: { ...process.env, GITHUB_WORKSPACE: dir, GITHUB_EVENT_PATH: eventPath,
+                GITHUB_EVENT_NAME: kind, GITHUB_SHA: head },
+            });
+            assert.ifError(result.error);
+            const expected = options.expected ?? 0;
+            const output = result.stdout + result.stderr;
+            assert.equal(result.status, expected, name + '\n' + output);
+            assert.match(output, options.pattern ?? /PASS GUARDRAILS/);
+            console.log('PASS FIXTURE ' + name + ' expected exit ' + expected);
+            if (expected !== 0) console.log(output.trim());
+            passed++;
+          }
+
+          const contractFailure = { expected: 1, pattern: /FAIL CONTRACT_CHANGE_REQUIRES_LABEL/ };
+          const inputFailure = { expected: 2, pattern: /ERROR GUARDRAILS_INPUT/ };
+          const contractChanges = {
+            add: ({ write }) => write('engine/contracts/new.schema.json', '{}\n'),
+            modify: ({ write }) => write('engine/contracts/fixture.schema.json', '{"changed":true}\n'),
+            delete: ({ dir }) => rmSync(join(dir, 'engine/contracts/fixture.schema.json')),
+            'rename-out': ({ dir }) => renameSync(join(dir, 'engine/contracts/fixture.schema.json'), join(dir, 'moved.json')),
+            'rename-in': ({ dir }) => renameSync(join(dir, 'outside.json'), join(dir, 'engine/contracts/moved.schema.json')),
+          };
+
+          try {
+            check('readme-only', { change: ({ write }) => write('README.md', 'updated\n') });
+            for (const [name, change] of Object.entries(contractChanges)) {
+              check('contract-' + name + '-no-label', { change, ...contractFailure });
+              check('contract-' + name + '-with-label', { change, labels: ['contract-change'] });
+            }
+            check('near-label-is-not-permission', { change: contractChanges.modify,
+              labels: ['Contract-change', 'contract-change-extra'], ...contractFailure });
+            check('contract-in-earlier-commit', { change: (context) => {
+              contractChanges.modify(context); context.commit(); context.write('README.md', 'last commit\n');
+            }, ...contractFailure });
+            check('diverged-base-readme-only', { divergedBase: true, change: ({ write }) => write('README.md', 'head only\n') });
+            check('contract-path-with-newline', { change: ({ write }) => write('engine/contracts/a space\nand newline.schema.json', '{}'), ...contractFailure });
+
+            for (const bytes of [5_000_000, 5_000_001]) {
+              const result = bytes > 5_000_000 ? { expected: 1, pattern: /FAIL FILE_TOO_LARGE/ } : {};
+              const content = Buffer.alloc(bytes, 'x');
+              check('added-size-' + bytes, { change: ({ write }) => write('added file\nwith newline.txt', content), ...result });
+              check('modified-size-' + bytes, { change: ({ write }) => write('small.txt', content), ...result });
+              check('renamed-size-' + bytes, { seed: ({ write }) => write('before.txt', content),
+                change: ({ dir }) => renameSync(join(dir, 'before.txt'), join(dir, 'renamed.txt')), ...result });
+            }
+            check('label-does-not-bypass-size', { change: ({ write }) => write('engine/contracts/large.schema.json', Buffer.alloc(5_000_001, 'x')),
+              labels: ['contract-change'], expected: 1, pattern: /FAIL FILE_TOO_LARGE/ });
+            check('deleted-large-file', { seed: ({ write }) => write('large.txt', Buffer.alloc(5_000_001, 'x')),
+              change: ({ dir }) => rmSync(join(dir, 'large.txt')) });
+            check('missing-base', { event: (event) => { delete event.pull_request.base; }, ...inputFailure });
+            check('missing-head', { event: (event) => { delete event.pull_request.head; }, ...inputFailure });
+            check('unavailable-history', { event: (event) => { event.pull_request.base.sha = 'f'.repeat(40); }, ...inputFailure });
+            check('missing-label-data', { event: (event) => { delete event.pull_request.labels; }, ...inputFailure });
+            check('malformed-event', { malformed: true, ...inputFailure });
+            check('push-contract-has-no-pr-label-rule', { kind: 'push', change: contractChanges.modify });
+            check('push-large-file', { kind: 'push', change: ({ write }) => write('large.txt', Buffer.alloc(5_000_001, 'x')),
+              expected: 1, pattern: /FAIL FILE_TOO_LARGE/ });
+            check('new-branch-small-files', { kind: 'push', created: true });
+            check('new-branch-existing-large-file', { kind: 'push', created: true,
+              seed: ({ write }) => write('large.txt', Buffer.alloc(5_000_001, 'x')), expected: 1, pattern: /FAIL FILE_TOO_LARGE/ });
+            check('push-missing-before', { kind: 'push', event: (event) => { delete event.before; }, ...inputFailure });
+            assert.equal(passed, 33, 'The fixture suite must not pass without executing every case');
+            console.log('PASS GUARDRAIL_FIXTURES ' + passed);
+          } finally {
+            rmSync(fixtureRoot, { recursive: true, force: true });
+          }
+          NODE
+
+      - name: Verify source files remain unchanged
+        if: always()
+        run: |
+          git diff --exit-code
+          git diff --cached --exit-code
+          test -z "$(git ls-files --others --exclude-standard)"
+          test ! -e src
+          sha256sum --check "$RUNNER_TEMP/protected-before.sha256"
           sha256sum pipeline/state.json package-lock.json
           echo "PASS source files unchanged; no untracked files or src"
