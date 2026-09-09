@@ -55,13 +55,13 @@ Bảng dưới liệt kê mọi loại lệnh và nơi nó thực sự chạy.
 
 | Việc | Chạy ở đâu | Chủ dự án làm gì |
 |---|---|---|
-| `npm install`, `npm run test`, `npm run validate` | Sandbox đám mây của Codex | Không làm gì. Codex tự chạy trước khi mở PR |
+| `npm ci`, `npm run test`, `npm run validate`, `npm run typecheck` | GitHub Actions runner, Node 20 cho CI hiện tại | Mở link CI để xem kết quả; ChatGPT Work chuẩn bị thay đổi và thu bằng chứng |
 | Cài Remotion, Chromium, ffmpeg | GitHub Actions runner | Không làm gì |
 | Render video | GitHub Actions runner | Không làm gì |
-| Tạo file, sửa file, commit | Codex (qua PR) hoặc giao diện web GitHub | Bấm nút trên trình duyệt |
+| Tạo file, sửa file, commit | ChatGPT Work trên nhánh WP (qua PR) hoặc giao diện web GitHub | Duyệt phạm vi rồi xem diff trên trình duyệt |
 | Xem diff, duyệt, merge | Giao diện web GitHub | Bấm nút |
 | Hoàn tác một PR đã merge | Nút **Revert** trên trang PR của GitHub | Bấm nút |
-| Xem trước cockpit | Preview của Codex hoặc GitHub Pages | Mở link trong trình duyệt |
+| Xem trước cockpit | Preview của ChatGPT Sites hoặc GitHub Pages theo phương án được duyệt | Mở link trong trình duyệt |
 | Chạy pipeline | GitHub Actions, kích hoạt từ cockpit | Bấm nút trên cockpit |
 
 **Cấm tuyệt đối:** không tài liệu nào, không WP nào được yêu cầu chủ dự án chạy lệnh terminal,
@@ -69,16 +69,18 @@ cài phần mềm, hay mở file bằng giao thức `file://`. Nếu một WP c�
 
 ## ChatGPT đồng bộ với GitHub như thế nào
 
-Không có "repo của ChatGPT" tách biệt cần đồng bộ hai chiều. Cơ chế thực tế:
+GitHub là nguồn sự thật duy nhất. ChatGPT Work là nơi nhận yêu cầu và chuẩn bị thay đổi:
 
-1. Codex **clone repo GitHub vào sandbox đám mây riêng** của nó mỗi khi nhận task.
-2. Codex làm việc trong sandbox đó, chạy test ở đó.
-3. Xong việc, Codex **push một nhánh mới lên GitHub và mở pull request**.
-4. Chủ dự án duyệt PR trên web GitHub và merge.
-5. Sandbox bị huỷ. Task sau clone lại bản mới nhất.
+1. Đọc lại main, tài liệu bắt buộc và WP tại SHA đã xác minh.
+2. Sửa đúng phạm vi trên nhánh WP; bản làm việc tạm không thay thế repo GitHub.
+3. Push kích hoạt CI GitHub Actions. CI hiện tại chạy Node 20, cài từ lockfile và thu
+   bằng chứng nghiệm thu Loại 2; không đòi chủ dự án chạy lệnh.
+4. Mở một PR theo WP, kiểm thêm ngữ cảnh PR và ghi link run/SHA/kết quả thật trong mô tả.
+5. Chủ dự án đọc diff và checks trên web. Chỉ merge khi có phê duyệt riêng.
+6. Tác vụ tiếp theo xác minh lại main; không dựa vào bản làm việc tạm của phiên trước.
 
-Nghĩa là GitHub luôn là bản gốc duy nhất. Sandbox chỉ là nơi làm việc tạm, không phải bản sao
-cần giữ đồng bộ.
+Loại nghiệm thu và việc cho phép dùng secret/provider được quy định riêng trong
+`13-upgrade-safety.md` và từng WP. Việc chạy CI không tự cấp quyền triển khai.
 
 ## Triển khai cockpit — ba phương án
 

@@ -54,11 +54,20 @@ khác nhau.
 
 ## Hai loại nghiệm thu
 
-Codex không chạy được mọi acceptance test — sandbox không có secret production.
+Phân loại theo nơi chạy; WP phải ghi rõ môi trường, dữ liệu, thời điểm và bằng chứng.
 
-| Loại | Chạy ở đâu | Ví dụ |
+| Loại | Chạy ở đâu | Dữ liệu và thời điểm |
 |---|---|---|
-| **Loại 1** | Sandbox Codex, trước khi mở PR | schema, typecheck, unit test, render 5 giây dữ liệu giả |
-| **Loại 2** | Actions sau khi merge, có secret thật | render đầy đủ, TTS thật, upload, so sánh cặp thị giác |
+| **Loại 1** | Môi trường tạm của coding agent nếu có runtime phù hợp | Dữ liệu giả, không secret production; kiểm trước PR |
+| **Loại 2** | GitHub Actions | Có thể chạy CI trước merge với fixture, không secret; hoặc chạy thật sau merge khi được duyệt riêng |
 
-Mỗi WP phải ghi rõ acceptance test thuộc loại nào.
+ChatGPT Work chuẩn bị thay đổi và đọc bằng chứng từ Actions. WP-000 và WP-001 dùng
+**Loại 2 trên Node 20, trước merge, không gọi provider hay dùng secret production**.
+Không phải mọi acceptance đều cần Codex Cloud; không yêu cầu chủ dự án có máy local.
+
+Mỗi WP phải chỉ rõ lệnh/kịch bản, SHA nguồn, tiêu chí pass/fail và liên kết workflow run.
+Với fixture âm, ghi exit code và lỗi mong đợi của tiến trình thật; harness xanh không có
+nghĩa PR thật đã đỏ. Không thay fixture bằng kết quả giả hoặc test không có assertion.
+
+Nhãn Loại 2 **không cấp quyền** dùng secret, gọi TTS/LLM/YouTube, render production,
+dispatch/rerun hay triển khai. Những thao tác đó cần phê duyệt riêng theo phạm vi WP.

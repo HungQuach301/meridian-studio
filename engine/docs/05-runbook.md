@@ -2,6 +2,46 @@
 
 Sổ tay dùng hằng ngày. Viết dần từ Wave 2, cập nhật mỗi khi gặp sự cố mới.
 
+## Kiểm CI và review PR (WP-001)
+
+1. Trong GitHub, mở PR của WP → **Files changed**. Đối chiếu từng file với Files in scope;
+   xem **Commits** để xác nhận head SHA đã được review.
+2. Mở **Checks** hoặc link run trong mô tả PR. Chọn run có sự kiện `pull_request`
+   và đúng head; kiểm đủ `validate`, `typecheck`, `guardrails` đều hoàn tất, xanh.
+   Push có check `guardrails-push`; kết quả này không thay thế guardrails của PR.
+3. Trong log, kiểm Node 20, `npm ci`, 9 test validator hiện tại, validate/typecheck,
+   fixture acceptance và dòng xác nhận nguồn không đổi. Cache npm miss/hit đều phải
+   cài từ lockfile; cache không thay bước cài hoặc bước test.
+4. Nếu có thay đổi contract, đọc cả đường dẫn cũ/mới trong diff. Nhãn
+   `contract-change` chỉ thỏa điều kiện CI, không thay thế phê duyệt contract/ADR
+   và không cho agent quyền sửa schema. Không gắn nhãn chỉ để làm một PR trái phạm vi xanh.
+5. Khi việc thử nhãn đã được duyệt, gắn/gỡ nhãn trong thanh bên PR. Mỗi thao tác tự
+   tạo CI qua `labeled`/`unlabeled`; chờ run mới nhất, đối chiếu action/nhãn/head
+   trong log. Giữ nhãn `engine` cho WP-001 sau khi kết thúc phép thử.
+6. Đọc đủ bốn mục mô tả PR và rủi ro còn lại. CI đỏ, thiếu bằng chứng hoặc head đổi
+   sau review thì dừng merge; báo lại để sửa trong phạm vi được duyệt.
+7. Chỉ bấm merge sau phê duyệt riêng của chủ dự án. Tác vụ chuẩn bị WP-001 dừng ở PR.
+   Không tự bấm **Re-run jobs**, dispatch workflow, đổi settings hay triển khai.
+
+| Lỗi CI | Xử lý trên trình duyệt |
+|---|---|
+| Validator báo schema sai | Mở log lỗi, đối chiếu dữ liệu/schema; giao sửa trong phạm vi WP, không sửa contract để né lỗi |
+| Guardrails báo thiếu contract-change | Kiểm diff và quyền thay contract; xin quyết định riêng nếu cần, không tự gắn nhãn để bỏ qua |
+| Blob vượt 5.000.000 byte | Đọc tên file/kích thước trong log; giao đưa nội dung lớn ra khỏi repo theo chính sách artifact |
+| Guardrails không đọc được base/head/payload | Dừng review, báo lỗi dữ liệu CI; không chấp nhận kết quả từ diff rỗng |
+| npm ci báo lockfile không khớp | Dừng; không tự tạo lại lockfile hay nâng dependency trong WP-001 |
+
+**Giới hạn required checks:** tại checkpoint 2026-09-09, repo private có main
+`protected: false`, required checks off. API rulesets trả 403 do giới hạn gói GitHub.
+CI hiện phát hiện lỗi nhưng chưa khóa nút merge bằng bảo vệ nhánh. Chủ dự án phải
+thực hiện quy trình review phía trên. Repo giữ private; WP-001 không đổi gói/quyền/settings.
+Muốn bắt buộc checks bằng GitHub cần quyết định riêng về gói phù hợp và cấu hình bảo vệ,
+rồi đọc lại settings để xác minh; không coi việc thêm workflow là đã hoàn tất bước đó.
+
+Các fixture âm nằm trong thư mục tạm của runner. Log `expected exit 1` cùng lỗi đúng
+là bằng chứng checker/validator từ chối dữ liệu sai, không phải bằng chứng PR thật đỏ.
+Mô tả PR phải phân biệt hai trường hợp này.
+
 ## Chạy một tập (đường chuẩn)
 
 1. Mở cockpit → tab **Gate Inbox**.
