@@ -1,6 +1,6 @@
 # WP-001 · CI hardening
 
-**Wave:** 1 · **Phụ thuộc:** WP-000 · **Trạng thái:** in-progress
+**Wave:** 1 · **Phụ thuộc:** WP-000 · **Trạng thái:** in-review
 
 > **Sửa đổi được chủ dự án duyệt 2026-09-09:** WP-000 đã cung cấp CI tối thiểu.
 > WP-001 bổ sung guardrails và cache npm; nghiệm thu bằng fixture tạm trong Actions.
@@ -93,12 +93,31 @@ thay thế ba PR thử nghiệm trong đặc tả cũ; không tạo PR phụ hay
 
 ## 7. Definition of Done
 Theo `engine/ops/definition-of-done.md`, cộng thêm:
-- [ ] Diff đúng sáu file; tài liệu được cập nhật trước workflow.
-- [ ] Bằng chứng Loại 2 đủ cả nguồn thật, fixture, cache và sự kiện nhãn.
-- [ ] PR đủ bốn mục; backlog WP-001 ghi trạng thái review và liên kết bằng chứng.
-- [ ] Giới hạn required checks và rủi ro Vitest được nêu rõ.
+- [x] Diff đúng sáu file; tài liệu được cập nhật trước workflow.
+- [x] Bằng chứng Loại 2 đủ cả nguồn thật, fixture, cache và sự kiện nhãn.
+- [x] PR đủ bốn mục; backlog WP-001 ghi trạng thái review và liên kết bằng chứng.
+- [x] Giới hạn required checks và rủi ro Vitest được nêu rõ.
 - [ ] Chủ dự án review toàn bộ diff trước khi cho phép merge riêng.
 
 Tại checkpoint 2026-09-09, main chưa được bảo vệ (`protected: false`, required checks off).
 API rulesets của repo private trả 403 do giới hạn gói GitHub. WP này không thay đổi gói,
 độ riêng tư, quyền hoặc settings; CI đỏ vẫn phải dừng merge theo quy trình của chủ dự án.
+
+## 8. Bằng chứng chuẩn bị PR
+
+[PR #6](https://github.com/HungQuach301/meridian-studio/pull/6) — chờ chủ dự án review, chưa merge.
+Head triển khai đã nghiệm thu: `998c47f50cfeb9bf56c9ce8d07ba55870aa2c85c`.
+Commit tài liệu bàn giao tiếp theo giữ nguyên workflow; CI tự động của head bàn giao
+được liên kết trong mô tả PR để tránh tham chiếu vòng tới chính commit này.
+
+| Bằng chứng | Kết quả |
+|---|---|
+| [Push trước PR, cache mới](https://github.com/HungQuach301/meridian-studio/actions/runs/34304734631) | Ba job xanh; Node 20.20.2 / npm 10.8.2; 9 test + 2 fixture CLI + 33 fixture guardrails |
+| [PR opened](https://github.com/HungQuach301/meridian-studio/actions/runs/34304890517) | Ba job xanh; diff thật có 6 file |
+| [Gắn nhãn engine, cache hit](https://github.com/HungQuach301/meridian-studio/actions/runs/34304956007) | labeled; nhãn engine; cùng head; 9 test và toàn bộ fixture đạt |
+| [Gỡ nhãn engine](https://github.com/HungQuach301/meridian-studio/actions/runs/34305069390) | unlabeled; nhãn rỗng; cùng head; ba job xanh |
+
+Đã khôi phục nhãn engine trên PR #6. Mọi run là CI tự động, attempt 1.
+Fixture state sai trả exit 1 vì thiếu episodes; contract thiếu nhãn và file vượt
+ngưỡng trả exit 1 đúng lý do; dữ liệu sự kiện thiếu/sai trả exit 2.
+Đây là negative fixture trong thư mục tạm, không phải sửa state/contracts thật.
