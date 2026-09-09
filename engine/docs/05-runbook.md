@@ -42,6 +42,52 @@ Các fixture âm nằm trong thư mục tạm của runner. Log `expected exit 1
 là bằng chứng checker/validator từ chối dữ liệu sai, không phải bằng chứng PR thật đỏ.
 Mô tả PR phải phân biệt hai trường hợp này.
 
+## Hello và repository_dispatch (WP-002)
+
+WP-002 đang chuẩn bị PR. **Chưa bấm Run workflow hoặc Re-run jobs** cho tới khi merge
+và có phê duyệt riêng gắn với checkpoint mới. Không cần terminal, PAT hoặc secret mới.
+
+### Review trước merge
+
+1. Mở PR → Files changed: đúng hello.yml, WP-002, runbook và duy nhất dòng backlog WP-002.
+   pipeline/state.json, ci.yml, contracts và dependency/lockfile phải giữ nguyên.
+2. Mở Checks: CI có validate/typecheck/guardrails xanh. Hello có verify xanh;
+   heartbeat và send-hello phải skipped trên push/PR.
+3. Trong verify, kiểm source SHA, Node 20, npm ci, strict typecheck worker tạm,
+   fixture thực tế, npm test/validate/typecheck và xác nhận toàn bộ nguồn không đổi.
+4. Fixture âm phải có exit 1 và đúng mã lỗi; chưa có commit heartbeat hoặc HTTP dispatch.
+   Chủ dự án đọc diff và bốn mục PR, rồi mới quyết định merge riêng.
+
+### Thử thật sau merge và phê duyệt riêng
+
+1. Yêu cầu ChatGPT Work xác minh main/tree và CI sau merge, chuẩn bị expected_sha đầy đủ.
+   Duyệt một lượt heartbeat trước. Trên GitHub repo → Actions → **Hello** →
+   **Run workflow**: branch main, mode heartbeat, expected_sha đúng SHA đã duyệt.
+2. Đợi run completed/success, attempt 1. Trong log/summary lấy SOURCE_SHA,
+   HEARTBEAT_COMMIT và link commit. Mở commit: chỉ updatedAt của pipeline/state.json đổi;
+   author/committer github-actions[bot], message chore: heartbeat, parent đúng nguồn.
+3. Sau read-back đạt, xác minh checkpoint mới rồi xin duyệt lượt send-hello cùng một
+   run nhận. Bấm Run workflow trên main, mode send-hello, expected_sha mới đã duyệt.
+4. Run gửi phải báo HTTP 204 và không ghi state. Trong Actions mở thêm run Hello có
+   event repository_dispatch; source_run_id trong admission phải khớp run gửi,
+   expected_sha khớp nguồn. Kiểm heartbeat commit theo bước 2. Không có vòng gửi tiếp.
+5. Tổng dự kiến ba workflow run, hai heartbeat commit. Không bấm lại nếu chưa thấy
+   kết quả. HTTP 204 không thay cho bằng chứng run nhận thành công.
+
+Heartbeat dùng GITHUB_TOKEN nên push của bot **không tự tạo CI push mới**. Đọc verify
+trên SHA nguồn, validation trong job ghi và read-back commit; không báo CI nguồn là
+CI của heartbeat. Hello không kiểm khóa LLM/TTS/ASR và không chứng minh cockpit đã nối;
+phần client ngoài GitHub/cockpit thuộc WP-004. Main chưa có required checks cưỡng chế,
+vẫn phải review thủ công như WP-001. Không thay đổi settings để làm phép thử xanh.
+
+| Lỗi | Xử lý |
+|---|---|
+| WP002_ADMISSION hoặc WP002_MAIN_MOVED | Dừng; kiểm input, SHA, branch, attempt và lịch sử main; không tự đổi input/chạy lại |
+| WP002_STATE_JSON / WP002_STATE_SCHEMA / WP002_TIMESTAMP / WP002_STATE_DELTA | Mở log, đối chiếu state và schema; giao sửa trong phạm vi được duyệt, không sửa contract |
+| Push bị từ chối / HTTP khác 204 | Dừng và đọc bằng chứng; không retry, nâng quyền, thêm PAT hoặc đổi settings |
+| Timeout sau push/request | Kiểm commit/run nhận read-only trước; kết quả có thể đã xảy ra dù job đỏ |
+| Heartbeat pending/cancelled | Không coi concurrency là hàng đợi bền vững; không mở nhiều lượt cùng lúc, không tự rerun |
+
 ## Chạy một tập (đường chuẩn)
 
 1. Mở cockpit → tab **Gate Inbox**.
@@ -108,5 +154,6 @@ Chỉ Phương án A cần dán Sites, và chỉ đúng **một lần** lúc thi
 
 1. Tạo khoá mới ở nhà cung cấp.
 2. Cập nhật trong repo → Settings → Secrets and variables → Actions.
-3. Chạy `hello.yml` để xác nhận.
+3. Xác nhận khóa bằng phép thử riêng của provider đã được duyệt trong WP tương ứng.
+   `hello.yml` chỉ kiểm vòng điều khiển và quyền ghi repo, không dùng hoặc kiểm khóa provider.
 4. Thu hồi khoá cũ.
