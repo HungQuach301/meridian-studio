@@ -4,7 +4,7 @@ Một WP = một task Codex = một PR. Không giao hai WP trong một task.
 
 | WP | Tên | Wave | Phụ thuộc | Trạng thái |
 |---|---|---|---|---|
-| WP-000 | **Scaffold cấu trúc dự án — VIỆC ĐẦU TIÊN** | 1 | — | todo |
+| WP-000 | **Scaffold cấu trúc dự án — VIỆC ĐẦU TIÊN** | 1 | — | review — PR #5; acceptance Loại 2 đạt |
 | WP-VAL-001 | Kiểm giả định khán giả (tuỳ chọn, song song) | 0–2 | — | optional |
 | WP-001 | CI validate schema | 1 | WP-000 | todo |
 | WP-002 | Workflow hello + dispatch | 1 | WP-000 | todo |
