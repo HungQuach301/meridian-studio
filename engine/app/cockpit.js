@@ -1,12 +1,331 @@
 (() => {
   "use strict";
+
+  const repository = "HungQuach301/meridian-studio";
+  const path = "pipeline/state.json";
+  const revision = "wp003-v1";
+  const shaPattern = /^[a-f0-9]{40}$/;
   const gate = document.getElementById("meridian-gate");
-  if (!gate) throw new Error("WP003A_GATE_MISSING");
-  const heading = document.createElement("h2");
-  heading.textContent = "Loader OK";
-  const detail = document.createElement("p");
-  detail.textContent = "wp003a-v1 · Kiểm tra UTF-8: tiếng Việt — ✓";
-  gate.replaceChildren(heading, detail);
-  gate.dataset.wp003aRevision = "wp003a-v1";
+  const sourceCommit = document.getElementById("meridian-ref")?.value.trim();
+  const codeBlob = document.getElementById("meridian-blob")?.value.trim();
+  if (!gate || !shaPattern.test(sourceCommit ?? "") || !shaPattern.test(codeBlob ?? "")) {
+    throw new Error("WP003_BOOT_SOURCE");
+  }
+  if (gate.dataset.wp003Mounted === "true") throw new Error("WP003_ALREADY_MOUNTED");
+
+  const maxStateBytes = 1024 * 1024;
+  const maxEnvelopeBytes = 2 * 1024 * 1024;
+  const timeoutMs = 15000;
+  // These values describe the existing Engine contract, not channel content.
+  const stages = new Set(["S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08", "S09", "S09.5",
+    "S10", "S11", "S11.5", "S12", "S13", "S14a", "S14b", "S14c", "S14d", "done"]);
+  const statuses = new Set(["idle", "running", "awaiting-gate", "blocked", "failed", "done"]);
+  const messages = {
+    INPUT: "Nhập token chỉ Contents read vào Settings. Chưa gửi request.",
+    ENVIRONMENT: "Môi trường chưa đủ khả năng đọc và kiểm tra dữ liệu. Chưa gửi request.",
+    FETCH: "Không tải được state hoặc redirect bị chặn. Chưa đủ bằng chứng kết luận CORS/CSP.",
+    TIMEOUT: "Hết 15 giây đọc state. Không tự gửi lại request.",
+    RESPONSE: "Phản hồi không đúng file, đường dẫn, encoding hoặc kích thước.",
+    SIZE: "Phản hồi vượt giới hạn tải: state 1 MiB, phần bọc API 2 MiB.",
+    DECODE: "Base64 hoặc UTF-8 của state không hợp lệ.",
+    INTEGRITY: "Bytes state không khớp blob SHA trong phản hồi GitHub.",
+    JSON: "Nội dung state không phải JSON hợp lệ.",
+    DATA: "Các trường dùng cho giao diện không phù hợp contract pipeline state.",
+    CANCELLED: "Phiên đọc đã kết thúc. Không tự gửi lại request.",
+    INTERNAL: "Không hoàn tất được lượt đọc. Dừng và đối chiếu bằng chứng.",
+  };
+  const fail = (code) => { throw new Error(code); };
+  const element = (tag, text, id) => {
+    const node = document.createElement(tag);
+    if (text !== undefined) node.textContent = text;
+    if (id) node.id = id;
+    return node;
+  };
+  const app = element("section", undefined, "meridian-cockpit");
+  app.setAttribute("aria-label", "Cockpit chỉ đọc");
+  const style = element("style", [
+    "#meridian-cockpit { margin-top: 1rem; }",
+    "#meridian-cockpit .wp003-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: .75rem; }",
+    "#meridian-cockpit .wp003-summary > div { padding: .75rem; border: 1px solid; border-radius: .35rem; }",
+    "#meridian-cockpit dd { margin: .35rem 0 0; overflow-wrap: anywhere; }",
+    "#meridian-cockpit dt { font-weight: 600; }",
+    "#meridian-cockpit .wp003-table { overflow-x: auto; }",
+    "#meridian-cockpit table { border-collapse: collapse; width: 100%; }",
+    "#meridian-cockpit th, #meridian-cockpit td { border-bottom: 1px solid; padding: .65rem .4rem; text-align: left; overflow-wrap: anywhere; }",
+    "#meridian-cockpit caption { text-align: left; font-weight: 600; padding: .5rem 0; }",
+    "#meridian-cockpit details { margin: 1rem 0; }",
+    "#meridian-cockpit summary { cursor: pointer; }",
+    "#meridian-cockpit pre { font-size: .85rem; }",
+    "#meridian-cockpit button:disabled { cursor: default; }",
+  ].join("\n"));
+  const heading = element("h2", "Meridian Studio · Cockpit");
+  const subtitle = element("p", revision + " · Snapshot chỉ đọc tại commit đã chọn.");
+  const status = element("p", "Giao diện sẵn sàng. Chưa tải dữ liệu.", "wp003-status");
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
+  app.dataset.state = "WP003_READY";
+
+  const settings = element("details");
+  settings.open = true;
+  const settingsTitle = element("summary", "Settings · Đọc state");
+  const form = element("form", undefined, "wp003-state-form");
+  form.setAttribute("autocomplete", "off");
+  const instructions = element("p", "Nhập lại token chỉ Contents read của Meridian. Token chỉ dùng trong bộ nhớ cho một lượt đọc đã được duyệt.");
+  const label = element("label", "Token đọc state");
+  label.setAttribute("for", "wp003-state-token");
+  const tokenInput = element("input", undefined, "wp003-state-token");
+  tokenInput.type = "password";
+  tokenInput.setAttribute("autocomplete", "off");
+  tokenInput.spellcheck = false;
+  tokenInput.value = "";
+  const button = element("button", "Đọc state");
+  button.type = "submit";
+  form.append(instructions, label, tokenInput, button);
+  settings.append(settingsTitle, form);
+
+  const summary = element("dl");
+  summary.className = "wp003-summary";
+  const monthly = element("dd", "Chưa tải dữ liệu", "wp003-monthly-spend");
+  const updated = element("dd", "Chưa tải dữ liệu", "wp003-updated-at");
+  for (const [title, value] of [["Chi phí tháng (USD)", monthly], ["Cập nhật theo state", updated]]) {
+    const card = element("div");
+    card.append(element("dt", title), value);
+    summary.append(card);
+  }
+  const tableContainer = element("div");
+  tableContainer.className = "wp003-table";
+  const table = element("table");
+  const caption = element("caption", "Episode · Chưa tải dữ liệu");
+  const tableHead = element("thead");
+  const headerRow = element("tr");
+  for (const title of ["ID episode", "Stage", "Status", "Chi phí (USD)"]) {
+    const cell = element("th", title);
+    cell.scope = "col";
+    headerRow.append(cell);
+  }
+  tableHead.append(headerRow);
+  const tableBody = element("tbody", undefined, "wp003-episodes");
+  const placeholder = (text) => {
+    const row = element("tr");
+    const cell = element("td", text);
+    cell.colSpan = 4;
+    row.append(cell);
+    tableBody.replaceChildren(row);
+  };
+  placeholder("Chưa tải dữ liệu");
+  table.append(caption, tableHead, tableBody);
+  tableContainer.append(table);
+
+  const source = element("details");
+  const sourceTitle = element("summary", "Nguồn snapshot và bằng chứng lượt đọc");
+  const binding = element("pre", "Repository: " + repository + "\nCommit: " + sourceCommit +
+    "\nBlob Cockpit: " + codeBlob + "\nState: " + path);
+  const evidence = element("pre", "Chưa gửi request đọc state.", "wp003-evidence");
+  evidence.setAttribute("aria-label", "Bằng chứng không chứa token");
+  source.append(sourceTitle, binding, evidence);
+  app.append(style, heading, subtitle, status, settings, summary, tableContainer, source);
+  gate.replaceChildren(app);
+
+  const setStatus = (code, text) => {
+    app.dataset.state = code;
+    status.textContent = code + ": " + text;
+  };
+  const report = (row) => { evidence.textContent += JSON.stringify(row) + "\n"; };
+  const hex = (buffer) => Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+  const has = (value, key) => Object.hasOwn(value, key);
+  const money = (value) => value === undefined ? "Chưa có dữ liệu" :
+    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
+
+  function validTimestamp(value) {
+    if (typeof value !== "string") return false;
+    const match = /^(\d{4})-(\d{2})-(\d{2})[tT\s](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:[zZ]|([+-])(\d{2})(?::?(\d{2}))?)$/.exec(value);
+    if (!match) return false;
+    const [, yearText, monthText, dayText, hourText, minuteText, secondText, sign, zoneHourText, zoneMinuteText] = match;
+    const [year, month, day, hour, minute, second] = [yearText, monthText, dayText, hourText, minuteText, secondText].map(Number);
+    const zoneHour = Number(zoneHourText ?? 0);
+    const zoneMinute = Number(zoneMinuteText ?? 0);
+    const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    if (month < 1 || month > 12 || day < 1 || day > days[month - 1] ||
+        hour > 23 || minute > 59 || second > 60 || zoneHour > 23 || zoneMinute > 59) return false;
+    const offset = (sign === "-" ? -1 : 1) * (zoneHour * 60 + zoneMinute);
+    const utcMinute = ((hour * 60 + minute - offset) % 1440 + 1440) % 1440;
+    return second < 60 || utcMinute === 1439;
+  }
+
+  // Validate only the displayed projection; repository CI remains the full schema validator.
+  function validateDisplay(data) {
+    if (!object(data) || !has(data, "updatedAt") || !validTimestamp(data.updatedAt) ||
+        !has(data, "episodes") || !Array.isArray(data.episodes)) fail("DATA");
+    if (has(data, "monthlySpendUsd") && (typeof data.monthlySpendUsd !== "number" || !Number.isFinite(data.monthlySpendUsd))) fail("DATA");
+    for (const episode of data.episodes) {
+      if (!object(episode) || !has(episode, "episodeId") || typeof episode.episodeId !== "string" ||
+          !has(episode, "stage") || !stages.has(episode.stage) || !has(episode, "status") || !statuses.has(episode.status)) fail("DATA");
+      if (has(episode, "spendUsd") && (typeof episode.spendUsd !== "number" || !Number.isFinite(episode.spendUsd))) fail("DATA");
+    }
+  }
+
+  async function readEnvelope(response, signal) {
+    if (!response.body || typeof response.body.getReader !== "function") fail("RESPONSE");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8", { fatal: true });
+    let bytesRead = 0;
+    let text = "";
+    let complete = false;
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (signal.aborted) fail("TIMEOUT");
+        if (chunk.done) break;
+        if (!(chunk.value instanceof Uint8Array)) fail("RESPONSE");
+        bytesRead += chunk.value.byteLength;
+        if (bytesRead > maxEnvelopeBytes) fail("SIZE");
+        try { text += decoder.decode(chunk.value, { stream: true }); } catch { fail("RESPONSE"); }
+      }
+      try { text += decoder.decode(); } catch { fail("RESPONSE"); }
+      complete = true;
+    } finally {
+      if (!complete) { try { await reader.cancel(); } catch { /* Do not expose stream errors. */ } }
+      reader.releaseLock();
+    }
+    try { return JSON.parse(text); } catch { fail("RESPONSE"); }
+  }
+
+  async function decodeState(file) {
+    if (!object(file) || file.type !== "file" || file.path !== path || file.encoding !== "base64" ||
+        !shaPattern.test(file.sha ?? "") || !Number.isInteger(file.size) || file.size < 1 || typeof file.content !== "string") fail("RESPONSE");
+    if (file.size > maxStateBytes || file.content.length > maxEnvelopeBytes) fail("SIZE");
+    const encoded = file.content.replace(/\s/g, "");
+    if (encoded.length > 4 * Math.ceil(maxStateBytes / 3)) fail("SIZE");
+    if (encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) fail("DECODE");
+    let bytes;
+    let text;
+    try {
+      const decoded = atob(encoded);
+      if (btoa(decoded) !== encoded) fail("DECODE");
+      bytes = Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+      text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch { fail("DECODE"); }
+    if (bytes.length !== file.size) fail("RESPONSE");
+    const header = new TextEncoder().encode("blob " + bytes.length + "\0");
+    const gitBytes = new Uint8Array(header.length + bytes.length);
+    gitBytes.set(header);
+    gitBytes.set(bytes, header.length);
+    const blob = hex(await crypto.subtle.digest("SHA-1", gitBytes));
+    if (blob !== file.sha) fail("INTEGRITY");
+    const sha256 = hex(await crypto.subtle.digest("SHA-256", bytes));
+    let data;
+    try { data = JSON.parse(text); } catch { fail("JSON"); }
+    validateDisplay(data);
+    return { data, blob, sha256, bytes: bytes.length };
+  }
+
+  function renderState(data) {
+    const rows = document.createDocumentFragment();
+    for (const episode of data.episodes) {
+      const row = element("tr");
+      for (const value of [episode.episodeId, episode.stage, episode.status, money(episode.spendUsd)]) row.append(element("td", value));
+      rows.append(row);
+    }
+    const time = element("time", data.updatedAt);
+    time.dateTime = data.updatedAt;
+    monthly.textContent = money(data.monthlySpendUsd);
+    updated.replaceChildren(time);
+    caption.textContent = "Episode · " + data.episodes.length;
+    if (data.episodes.length === 0) placeholder("Chưa có episode");
+    else tableBody.replaceChildren(rows);
+  }
+
+  let attempted = false;
+  let active = true;
+  let controller = null;
+  window.addEventListener("pagehide", () => {
+    active = false;
+    tokenInput.value = "";
+    tokenInput.disabled = true;
+    button.disabled = true;
+    if (controller) controller.abort();
+  });
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (attempted || !active) { tokenInput.value = ""; return; }
+    let token = tokenInput.value.trim();
+    tokenInput.value = "";
+    if (!token || !/^[\x21-\x7e]+$/.test(token)) {
+      token = "";
+      setStatus("WP003_INPUT", messages.INPUT);
+      return;
+    }
+    if (!window.isSecureContext || !window.crypto?.subtle || typeof fetch !== "function" ||
+        typeof TextEncoder !== "function" || typeof TextDecoder !== "function" ||
+        typeof AbortController !== "function" || typeof atob !== "function" || typeof btoa !== "function") {
+      token = "";
+      setStatus("WP003_ENVIRONMENT", messages.ENVIRONMENT);
+      return;
+    }
+    attempted = true;
+    tokenInput.disabled = true;
+    button.disabled = true;
+    app.setAttribute("aria-busy", "true");
+    evidence.textContent = "";
+    report({ repository, path, sourceCommit, codeBlob, revision, requestNumber: 1, startedAt: new Date().toISOString() });
+    setStatus("WP003_STATE_LOADING", "Đang đọc snapshot tại commit đã chọn...");
+    controller = new AbortController();
+    const signal = controller.signal;
+    const timer = setTimeout(() => controller?.abort(), timeoutMs);
+    let outcome = "WP003_INTERNAL";
+    try {
+      const url = "https://api.github.com/repos/" + repository + "/contents/" + path + "?ref=" + sourceCommit;
+      let response;
+      try {
+        const pending = fetch(url, {
+          method: "GET", mode: "cors", credentials: "omit", cache: "no-store", redirect: "error", referrerPolicy: "no-referrer",
+          headers: { Authorization: "Bearer " + token, Accept: "application/vnd.github+json" }, signal,
+        });
+        token = "";
+        response = await pending;
+      } catch { fail(signal.aborted ? "TIMEOUT" : "FETCH"); }
+      finally { token = ""; }
+      if (signal.aborted) fail("TIMEOUT");
+      if (!Number.isInteger(response.status) || response.status < 100 || response.status > 599) fail("RESPONSE");
+      report({ httpStatus: response.status });
+      if (response.status !== 200) fail("HTTP_" + response.status);
+      let file;
+      try { file = await readEnvelope(response, signal); }
+      catch (error) {
+        if (signal.aborted) fail("TIMEOUT");
+        if (error instanceof Error && ["SIZE", "RESPONSE"].includes(error.message)) throw error;
+        fail("RESPONSE");
+      }
+      const result = await decodeState(file);
+      if (!active) fail("CANCELLED");
+      if (signal.aborted) fail("TIMEOUT");
+      renderState(result.data);
+      report({ verifiedStateBlob: result.blob, stateSha256: result.sha256, stateBytes: result.bytes, episodeCount: result.data.episodes.length });
+      outcome = "WP003_STATE_LOADED";
+      setStatus(outcome, "Đã đọc snapshot: " + result.data.episodes.length + " episode.");
+      settings.open = false;
+    } catch (error) {
+      const code = !active ? "CANCELLED" : signal.aborted ? "TIMEOUT" : error instanceof Error ? error.message : "INTERNAL";
+      const http = /^HTTP_[1-5][0-9]{2}$/.test(code);
+      const safeCode = http || has(messages, code) ? code : "INTERNAL";
+      outcome = "WP003_" + safeCode;
+      setStatus(outcome, http ? "GitHub không trả HTTP 200. Kiểm truy cập/path/ref; không tự đổi quyền hoặc thử lại." : messages[safeCode]);
+    } finally {
+      token = "";
+      tokenInput.value = "";
+      clearTimeout(timer);
+      controller?.abort();
+      controller = null;
+      app.setAttribute("aria-busy", "false");
+      report({ outcome, finishedAt: new Date().toISOString() });
+    }
+  });
+
+  // The loader checks these legacy attributes after 250 ms; they acknowledge UI boot only.
+  gate.dataset.wp003Mounted = "true";
+  gate.dataset.wp003aRevision = revision;
   gate.dataset.wp003aComplete = "true";
 })();
