@@ -120,6 +120,16 @@ DOM/fetch/timer giả chạy chính loader/Cockpit; worker TypeScript strict đ�
 fixture WP-002 và 23 fixture admission Cockpit. Runtime/hash/kết quả cuối ghi trong PR.
 Không dùng kết quả DOM giả làm bằng chứng CSS/CSP/CORS hoặc Site thật.
 
+Sửa P2 BOM sau review head `5d170db35c0f9a49dd90912726d7832c1fd6be5e`:
+fixture thêm BOM UTF-8 vào H từng làm UI báo RESULT_LOADED dù state tăng từ 88 lên
+91 byte ngoài thay đổi timestamp. Bản sửa từ chối `EF BB BF` ở đầu file trước giải mã,
+áp dụng cho cả snapshot M và kết quả H; không để TextDecoder âm thầm bỏ byte.
+Đã kiểm 4 case bổ sung: H thêm BOM bị từ chối và giữ bảng M; snapshot có BOM bị từ
+chối trước dispatch nên không thể đọc H đã bỏ BOM; chỉ timestamp đổi vẫn đạt; U+FEFF
+hợp lệ bên trong chuỗi dữ liệu được giữ nguyên. Chạy lại đủ 88 case WP-003 và 124
+case WP-004 trên mã sửa đều đạt. Fixture mới ở thư mục tạm, hash/báo cáo nằm trong PR;
+không có request thật hoặc thay đổi state repo. Giữ hồ sơ nghiệm thu WP-003 bên dưới.
+
 `npm test` 9/9 và typecheck đạt. Wrapper `npm run validate` trong sandbox gặp EPERM
 socket IPC của tsx; cùng validator qua `node --import tsx scripts/validate-schemas.ts`
 đạt 13 schema/1 JSON/0 failure. Fixture worker offline dùng cùng source/assertion,

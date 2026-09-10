@@ -205,6 +205,8 @@
       const decoded = atob(encoded);
       if (btoa(decoded) !== encoded) fail("DECODE");
       bytes = Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+      // Reject a leading BOM before decoding can hide bytes outside updatedAt.
+      if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) fail("DECODE");
       text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     } catch { fail("DECODE"); }
     if (bytes.length !== file.size) fail("RESPONSE");
