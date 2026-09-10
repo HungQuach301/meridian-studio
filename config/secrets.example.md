@@ -35,11 +35,32 @@ Credential kỹ thuật do Sites cấp để đẩy bản triển khai loader l�
 Không ghi credential đó vào file này, Git remote URL hoặc cấu hình Git; chỉ dùng trong thao
 tác được duyệt. Bước chuẩn bị PR WP-003a chưa được lấy hoặc sử dụng credential Sites.
 
-## PAT cho Cockpit ở WP sau
+## PAT cho Cockpit WP-004 — cần duyệt lượt thật riêng
 
-Quyền Contents write hoặc Actions write chỉ được xét khi WP thực sự cần thao tác ghi;
-phải duyệt riêng, không kế thừa từ WP-003a. Token đọc của spike không phải bằng chứng
-dispatch từ Cockpit đã được nghiệm thu.
+PR WP-004 chỉ chuẩn bị code/fixture; chưa cấp hoặc dùng token thật. Chủ dự án tự
+cấp, nhập và quản lý; agent không nhận giá trị token qua chat hoặc ảnh bằng chứng.
+
+| Token | Repository và quyền | Chỗ nhập |
+|---|---|---|
+| Đọc mã/snapshot/kết quả | Chỉ Meridian; Contents Read-only; Metadata read mặc định | Loader và Settings đọc state/kết quả, nhập riêng cho từng thao tác |
+| Dispatch riêng | Chỉ Meridian; Contents Read and write; Metadata read mặc định | Gửi hello trong Cockpit, chỉ khi có phê duyệt một lượt thật |
+
+- Repository access: chỉ `HungQuach301/meridian-studio`; fine-grained PAT, hạn tối đa
+  30 ngày theo NFR. Không nâng quyền token đọc WP-003 đang được chủ dự án giữ.
+- `repository_dispatch` cần Contents write. Quyền này rộng hơn một endpoint dispatch;
+  chủ dự án phải duyệt rõ trước lượt thật. Không cần Actions write hoặc quyền khác.
+- Không khai PAT trình duyệt ở Actions Secrets hoặc Sites environment. Token ghi
+  của job heartbeat vẫn là `GITHUB_TOKEN` hiện có, không lấy PAT từ payload.
+- UI xóa ô nhập ngay; token chỉ tồn tại trong hàm xử lý chuỗi request, được thả khi
+  kết thúc/hủy. Không lưu storage, cookie, URL, log, biến toàn cục hoặc truyền từ loader.
+- Giữ token đọc WP-003 30 ngày là quyết định lịch sử của chủ dự án, không phải
+  quyền dùng token hoặc thử WP-004; hạn/quyền token được chủ dự án xác nhận,
+  không phải agent kiểm độc lập. Không dùng POST để thăm dò quyền.
+- Lỗi/timeout không cấp thêm lượt, không tự nới quyền, retry/rerun hoặc đổi cơ chế.
+
+Quy trình và trần request ở
+[WP-004](../engine/ops/work-packages/WP-004-cockpit-dispatch.md).
+[Quyền repository_dispatch](https://docs.github.com/en/rest/repos/repos#create-a-repository-dispatch-event).
 
 Tham chiếu quyền đọc Contents API:
 https://docs.github.com/en/rest/repos/contents#get-repository-content

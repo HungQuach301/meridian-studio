@@ -1,4 +1,153 @@
-# Cockpit chỉ đọc · WP-003
+# Cockpit Meridian · WP-004
+
+Revision hiện tại trong PR: `wp004-v1`. Cockpit giữ khả năng đọc snapshot của
+WP-003, thêm một lệnh hello và đọc kết quả tại commit được đối soát.
+Nguồn chuẩn chỉ ở `HungQuach301/meridian-studio`; loader giữ nguyên byte.
+[Đặc tả WP-004](../ops/work-packages/WP-004-cockpit-dispatch.md) liệt kê đúng bảy file,
+acceptance, quyền và ngân sách. PR chuẩn bị chưa cấp quyền merge hoặc thử thật.
+
+## WP-004 · Nguồn và thao tác
+
+| Nguồn | Cách xác định |
+|---|---|
+| M | Main sau merge WP-004, đối soát và được chủ dự án duyệt cho lượt thật |
+| B | Blob engine/app/cockpit.js tại M; review thêm SHA-256 và kích thước |
+| Snapshot ban đầu | pipeline/state.json tại cùng M dùng nạp mã |
+| H | Commit heartbeat do agent nối với run nhận/request_id; parent duy nhất là M |
+| State kết quả | pipeline/state.json tại H; không gọi dữ liệu mới này là snapshot M |
+
+M/B/H của lượt thật chỉ được chốt sau các phê duyệt tương ứng; không lấy SHA
+checkpoint chuẩn bị hoặc commit kho Sites để chạy mã WP-004. Cặp SHA nguồn/head,
+blob/hash ứng viên và bằng chứng kiểm tra được ghi trong PR sau khi commit tồn tại.
+Không hardcode commit của chính file vào mã. Loader vẫn kiểm bytes/blob trước chạy.
+
+### Trước lượt thật
+
+1. Mở PR trên GitHub → Files changed: đúng bảy file WP-004. Đọc cả payload/admission,
+   cách giữ token và xử lý lỗi. Loader, contracts, ci.yml, package/lockfile, state giữ nguyên.
+2. Mở Checks, kiểm đúng head và ngữ cảnh: CI validate/typecheck/guardrails đạt;
+   Hello verify đạt, heartbeat/send-hello skipped trên push/PR. Đọc số case/hash/runtime thật.
+3. Chỉ sau phê duyệt merge riêng mới đối soát M/tree/CI/state/lịch sử cùng B/hash/bytes.
+   Receiver mới cần nằm trên main. Chưa có required checks cưỡng chế; giữ review thủ công.
+4. Duyệt riêng metadata đúng Site Meridian/version/quyền chia sẻ, nguồn M/B, phạm vi
+   token và một lượt 5 GET + 1 POST. Không tạo version/deploy hoặc sao chép Cockpit/state.
+
+### Một lượt được duyệt sau này — chỉ thao tác trình duyệt
+
+1. Chủ dự án tự cấp/giữ token theo phê duyệt. Token đọc chỉ Meridian, Contents Read-only,
+   Metadata read mặc định; token dispatch riêng chỉ Meridian, Contents Read and write,
+   Metadata read mặc định. Fine-grained, hạn tối đa 30 ngày; không nâng token đọc WP-003.
+   Contents write rộng hơn endpoint dispatch; phải duyệt rõ. Không cần quyền Actions.
+2. Đối soát Site/version trước; ghi Chrome thực tế và UTC/thời gian thao tác. Mở Site,
+   chờ loader hoạt động; trang lỗi thì dừng trước khi nhập token.
+3. Nhập M/B vào loader, chọn Function constructor, nhập token Contents read và bấm
+   một lượt. Đối chiếu HTTP 200, blob/hash và WP003A_EXECUTED. UI hiện wp004-v1.
+4. Settings · Đọc state: nhập token đọc riêng và bấm một lần. Có WP003_STATE_LOADED,
+   dữ liệu/blob/hash khớp M thì Gửi hello mới được mở. Không lấy token từ loader/global.
+5. Gửi hello: đối chiếu repo/M và mô tả chỉ đổi updatedAt; nhập token dispatch riêng,
+   bấm một lần. UI khóa lượt trước GET main; khác M thì không POST. Đúng M thì gửi
+   một event_type hello với expected_sha M, source cockpit và request_id UUID v4.
+6. HTTP 204 chỉ là đã gửi. Giữ trang mở; agent đọc run nhận Hello repository_dispatch,
+   attempt 1/SHA M, PASS ADMISSION và CLIENT_REQUEST_ID. Verify/heartbeat phải success,
+   send-hello skipped. Agent lấy H từ log/summary rồi đối soát parent/bot/message/diff/state.
+7. Khi agent cung cấp H đã nối với request_id, nhập H và token Contents read riêng
+   trong Đọc kết quả. UI đọc metadata H rồi state H, kiểm blob và chỉ updatedAt tăng;
+   bảng hiển thị H, nhãn nguồn và bằng chứng vẫn giữ commit mã M/B/snapshot ban đầu M.
+8. Đối chiếu bảng/chi phí/updatedAt mới, blob/SHA-256, request_id, run và H. Gửi ảnh/log
+   vùng kết quả không token, số Chrome và thời gian thao tác để nghiệm thu riêng.
+   Không gửi HAR, Authorization, response body hoặc ảnh credential.
+
+| Request ứng dụng | Token | Mục đích |
+|---|---|---|
+| GET /contents/engine/app/cockpit.js?ref=M | Đọc | Loader lấy mã |
+| GET /contents/pipeline/state.json?ref=M | Đọc, nhập riêng | Snapshot ban đầu |
+| GET /git/ref/heads/main | Dispatch riêng | Chốt main trước POST |
+| POST /dispatches | Dispatch riêng | Gửi đúng một hello |
+| GET /commits/H | Đọc, nhập riêng | Kiểm commit kết quả |
+| GET /contents/pipeline/state.json?ref=H | Đọc, cùng thao tác kết quả | Lấy state mới |
+
+Mọi endpoint trên thuộc `https://api.github.com/repos/HungQuach301/meridian-studio`.
+Tổng tối đa 5 GET + 1 POST; có thể có OPTIONS cho CORS. Agent đọc run/commit qua
+kết nối GitHub riêng, không dùng PAT của chủ dự án. Không poll/tìm run từ trình duyệt.
+Mỗi thao tác UI timeout 15 giây cho chuỗi request của nó; không retry hoặc redirect.
+Giữ giới hạn tải state 1 MiB, phần bọc JSON/metadata 2 MiB; mã loader nhận tối đa 65.536 byte.
+
+Token chỉ ở hàm xử lý chuỗi request; ô nhập xóa ngay, thả tham chiếu khi xong/hủy.
+Không lưu storage/cookie/URL/log/global/Sites environment. Đọc trạng thái, dispatch và
+đọc kết quả nhận token độc lập; không dùng giá trị token để xác minh quyền bằng request ghi.
+Thành công HTTP không chứng minh không có quyền dư; quyền/hạn là xác nhận của chủ dự án.
+Giữ token 30 ngày không cấp thêm lượt. Token đọc WP-003 giữ 30 ngày vẫn là mốc lịch sử riêng.
+
+### UI, admission và giới hạn bằng chứng
+
+| Trạng thái | Ý nghĩa/hành động |
+|---|---|
+| WP003_READY / STATE_LOADING / STATE_LOADED | Luồng đọc snapshot ban đầu giữ các marker WP-003; chưa phải dispatch |
+| WP004_NEEDS_SNAPSHOT | Chưa có snapshot hợp lệ; chưa cho gửi |
+| WP004_READY / CHECKING_MAIN / SENDING | Sẵn sàng theo phê duyệt / kiểm main / đang gửi; một lượt đã khóa |
+| WP004_DISPATCH_ACCEPTED | HTTP 204, đợi agent đối soát run và H |
+| WP004_DISPATCH_UNKNOWN | POST đã bắt đầu, chưa biết kết quả; đọc lịch sử, không gửi lại |
+| WP004_WAITING_RESULT / RESULT_LOADING | Đợi H đã đối soát / đang kiểm H và đọc state |
+| WP004_RESULT_LOADED | Bảng H đã đọc và delta đạt; cần bằng chứng run/request_id cùng nghiệm thu của chủ dự án |
+| INPUT / ENVIRONMENT | Chưa request; kiểm input/môi trường trước thao tác được duyệt |
+| MAIN_RESPONSE / MAIN_MOVED | Không POST, dừng vì nguồn không đạt |
+| RESULT_COMMIT / RESULT_BLOB / RESULT_DELTA | H/bytes không đạt; giữ bảng M |
+| HTTP_* / FETCH / TIMEOUT / CANCELLED và lỗi dữ liệu | Dừng, không retry/reload để thử thêm hoặc tự nới quyền |
+
+Mã dựng UI/listener đồng bộ rồi đặt `wp003aComplete=true`, `wp003aRevision=wp004-v1`;
+marker legacy tương thích loader sau 250 ms chỉ xác nhận boot. Mã không tự gửi khi boot.
+UI đưa dữ liệu vào DOM bằng textContent; lỗi không biến thành bảng rỗng/thành công.
+
+Admission Cockpit tách khỏi sender Actions WP-002: đúng ba khóa expected_sha/source/request_id,
+không source_run_id giả hoặc payload trộn; giữ kiểm repo/main/SHA/attempt 1 trước ghi.
+Request_id chỉ dùng nối bằng chứng, không phải chứng thực trình duyệt/chống lặp bền vững.
+Agent vẫn phải xác minh H thuộc đúng run/request_id; UI chỉ kiểm cấu trúc commit và state.
+Không gọi thao tác này exactly-once, không coi concurrency là hàng đợi bền vững.
+
+UI kiểm H có một parent M, bot/message chore: heartbeat, đúng một file state modified;
+blob của bytes phải khớp file trong commit. So toàn bộ text trước/sau, ngoại trừ đúng
+một giá trị updatedAt gốc và yêu cầu thời gian tăng. Không serialize lại số lớn/decimal
+hoặc thay đổi field chưa biết để so sánh. Ajv ở workflow vẫn là full-schema validator.
+
+Heartbeat dùng GITHUB_TOKEN nên không kỳ vọng CI push mới trên H. Dùng verify ở M,
+validation trong heartbeat và read-back H/state; không gọi CI nguồn là CI H.
+Nghiệm thu vòng thật cần đủ một run nhận, một commit heartbeat và UI hiển thị H.
+
+### Bằng chứng chuẩn bị và phần chưa được phép
+
+Offline trong sandbox Node v24.19.0: giữ 88 case hồi quy WP-003 và 124 case WP-004,
+DOM/fetch/timer giả chạy chính loader/Cockpit; worker TypeScript strict đạt, giữ 30
+fixture WP-002 và 23 fixture admission Cockpit. Runtime/hash/kết quả cuối ghi trong PR.
+Không dùng kết quả DOM giả làm bằng chứng CSS/CSP/CORS hoặc Site thật.
+
+Sửa P2 BOM sau review head `5d170db35c0f9a49dd90912726d7832c1fd6be5e`:
+fixture thêm BOM UTF-8 vào H từng làm UI báo RESULT_LOADED dù state tăng từ 88 lên
+91 byte ngoài thay đổi timestamp. Bản sửa từ chối `EF BB BF` ở đầu file trước giải mã,
+áp dụng cho cả snapshot M và kết quả H; không để TextDecoder âm thầm bỏ byte.
+Đã kiểm 4 case bổ sung: H thêm BOM bị từ chối và giữ bảng M; snapshot có BOM bị từ
+chối trước dispatch nên không thể đọc H đã bỏ BOM; chỉ timestamp đổi vẫn đạt; U+FEFF
+hợp lệ bên trong chuỗi dữ liệu được giữ nguyên. Chạy lại đủ 88 case WP-003 và 124
+case WP-004 trên mã sửa đều đạt. Fixture mới ở thư mục tạm, hash/báo cáo nằm trong PR;
+không có request thật hoặc thay đổi state repo. Giữ hồ sơ nghiệm thu WP-003 bên dưới.
+
+`npm test` 9/9 và typecheck đạt. Wrapper `npm run validate` trong sandbox gặp EPERM
+socket IPC của tsx; cùng validator qua `node --import tsx scripts/validate-schemas.ts`
+đạt 13 schema/1 JSON/0 failure. Fixture worker offline dùng cùng source/assertion,
+chỉ gọi qua tsx ESM loader để không cần socket IPC. CI phải chạy lệnh chuẩn trên Node 20
+và fixture nguyên bản; kết quả CI thực tế/link run nằm trong PR. Không sửa package/workflow
+để né giới hạn môi trường. Typecheck repo không bao phủ JavaScript Cockpit.
+
+Chưa merge/metadata Sites/token thật/dispatch/rerun/provider; chưa nghiệm thu WP-004
+hoặc hoàn tất Wave 1. Hết ngân sách, checkpoint đổi hoặc cần vượt bảy file thì dừng.
+Giữ giới hạn Script inline, reload/xóa và nhập lại token trên Site thật, hai revision
+đối chứng cùng Sites version, trình duyệt/chính sách khác, dữ liệu có episode/lỗi trên
+Site và archive máy chủ nguyên byte. Không suy ra commit/reload tự cập nhật giao diện.
+Giữ toàn bộ hồ sơ WP-003 bên dưới; WP-004 không biến các lượt đã hết quyền thành lượt mới.
+
+## Tham chiếu lịch sử: Cockpit chỉ đọc WP-003
+
+Các quy trình, revision và số lượt trong phần WP-003 dưới đây mô tả WP-003 đã nghiệm thu;
+quy trình WP-004 hiện tại nằm ở phần trên. Không dùng lại quyền của các lượt lịch sử.
 
 Cockpit hiển thị snapshot của `pipeline/state.json` trong repository private
 `HungQuach301/meridian-studio`. Snapshot luôn thuộc **cùng commit Meridian**

@@ -119,10 +119,19 @@ jobs:
             } else {
               requireValue(eventName === 'repository_dispatch' && event.action === 'hello', 'WP002_ADMISSION_EVENT');
               values = object(event.client_payload, 'WP002_ADMISSION_PAYLOAD');
-              requireValue(typeof values.source_run_id === 'string' && /^[1-9][0-9]*$/.test(values.source_run_id), 'WP002_ADMISSION_BINDING');
-              requireValue(values.source_run_attempt === '1', 'WP002_ADMISSION_BINDING');
+              if (Object.hasOwn(values, 'source')) {
+                requireValue(values.source === 'cockpit', 'WP004_ADMISSION_SOURCE');
+                requireValue(Object.keys(values).sort().join(',') === 'expected_sha,request_id,source', 'WP004_ADMISSION_PAYLOAD');
+                requireValue(typeof values.request_id === 'string' && values.request_id.length === 36 &&
+                  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(values.request_id), 'WP004_ADMISSION_REQUEST_ID');
+                ts.sys.write('SOURCE_CLIENT cockpit CLIENT_REQUEST_ID ' + values.request_id + '\n');
+              } else {
+                requireValue(!Object.hasOwn(values, 'request_id'), 'WP004_ADMISSION_PAYLOAD');
+                requireValue(typeof values.source_run_id === 'string' && /^[1-9][0-9]*$/.test(values.source_run_id), 'WP002_ADMISSION_BINDING');
+                requireValue(values.source_run_attempt === '1', 'WP002_ADMISSION_BINDING');
+                ts.sys.write('SOURCE_RUN_ID ' + values.source_run_id + ' SOURCE_RUN_ATTEMPT 1\n');
+              }
               mode = 'heartbeat';
-              ts.sys.write('SOURCE_RUN_ID ' + values.source_run_id + ' SOURCE_RUN_ATTEMPT 1\n');
             }
             requireValue(values.expected_sha === sha, 'WP002_ADMISSION_SHA');
             ts.sys.write('PASS ADMISSION ' + eventName + ' ' + mode + ' ' + sha + '\n');
@@ -298,8 +307,46 @@ jobs:
           admit('malformed-payload', '{', undefined, undefined, undefined, undefined, undefined, 'WP002_ADMISSION_JSON');
           assert.equal(count, 30);
           assert.deepEqual(readFileSync(join(root, 'pipeline/state.json')), original);
-          rmSync(dir, { recursive: true });
           console.log('PASS WP002_FIXTURES ' + count + '; repository state unchanged; no dispatch');
+          const cockpit = { repository, action: 'hello', client_payload: {
+            expected_sha: sha, source: 'cockpit', request_id: '8c851e08-fba0-4c55-a782-922279645d45',
+          } };
+          const cockpitCase = (name, change = {}, code) => admit('cockpit-' + name,
+            { ...cockpit, client_payload: { ...cockpit.client_payload, ...change } },
+            'repository_dispatch', undefined, undefined, undefined, undefined, code);
+          cockpitCase('accepted');
+          for (const [name, change, code] of [
+            ['wrong-source', { source: 'other' }, 'WP004_ADMISSION_SOURCE'],
+            ['null-source', { source: null }, 'WP004_ADMISSION_SOURCE'],
+            ['missing-id', { request_id: undefined }, 'WP004_ADMISSION_PAYLOAD'],
+            ['numeric-id', { request_id: 123 }, 'WP004_ADMISSION_REQUEST_ID'],
+            ['blank-id', { request_id: '' }, 'WP004_ADMISSION_REQUEST_ID'],
+            ['wrong-version', { request_id: '8c851e08-fba0-1c55-a782-922279645d45' }, 'WP004_ADMISSION_REQUEST_ID'],
+            ['wrong-variant', { request_id: '8c851e08-fba0-4c55-1782-922279645d45' }, 'WP004_ADMISSION_REQUEST_ID'],
+            ['uppercase-id', { request_id: cockpit.client_payload.request_id.toUpperCase() }, 'WP004_ADMISSION_REQUEST_ID'],
+            ['newline-id', { request_id: cockpit.client_payload.request_id + '\n' }, 'WP004_ADMISSION_REQUEST_ID'],
+            ['mixed-run-id', { source_run_id: '123' }, 'WP004_ADMISSION_PAYLOAD'],
+            ['mixed-attempt', { source_run_attempt: '1' }, 'WP004_ADMISSION_PAYLOAD'],
+            ['extra-path', { path: 'pipeline/state.json' }, 'WP004_ADMISSION_PAYLOAD'],
+            ['missing-sha', { expected_sha: undefined }, 'WP004_ADMISSION_PAYLOAD'],
+            ['wrong-sha', { expected_sha: 'b'.repeat(40) }, 'WP002_ADMISSION_SHA'],
+          ]) cockpitCase(name, change, code);
+          admit('cockpit-missing-source', { ...cockpit, client_payload: {
+            expected_sha: sha, request_id: cockpit.client_payload.request_id,
+          } }, 'repository_dispatch', undefined, undefined, undefined, undefined, 'WP004_ADMISSION_PAYLOAD');
+          admit('cockpit-mixed-legacy', { ...receipt, client_payload: {
+            ...receipt.client_payload, request_id: cockpit.client_payload.request_id,
+          } }, 'repository_dispatch', undefined, undefined, undefined, undefined, 'WP004_ADMISSION_PAYLOAD');
+          admit('cockpit-wrong-ref', cockpit, 'repository_dispatch', 'refs/heads/other', undefined, undefined, undefined, 'WP002_ADMISSION_REF');
+          admit('cockpit-rerun', cockpit, 'repository_dispatch', undefined, undefined, '2', undefined, 'WP002_ADMISSION_ATTEMPT');
+          admit('cockpit-wrong-repo', cockpit, 'repository_dispatch', undefined, undefined, undefined, 'other/repo', 'WP002_ADMISSION_REPOSITORY');
+          admit('cockpit-wrong-event', cockpit, 'push', undefined, undefined, undefined, undefined, 'WP002_ADMISSION_EVENT');
+          admit('cockpit-wrong-action', { ...cockpit, action: 'other' }, 'repository_dispatch', undefined, undefined, undefined, undefined, 'WP002_ADMISSION_EVENT');
+          admit('cockpit-array-payload', { ...cockpit, client_payload: [] }, 'repository_dispatch', undefined, undefined, undefined, undefined, 'WP002_ADMISSION_PAYLOAD');
+          assert.equal(count, 53, 'Both admission branches must exercise every case');
+          assert.deepEqual(readFileSync(join(root, 'pipeline/state.json')), original);
+          rmSync(dir, { recursive: true });
+          console.log('PASS WP004_ADMISSION_FIXTURES ' + (count - 30) + '; repository state unchanged; no dispatch');
           NODE
       - name: Run existing source checks
         run: |
