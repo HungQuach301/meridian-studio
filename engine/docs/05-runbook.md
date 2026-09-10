@@ -206,6 +206,75 @@ client dispatch WP-004 và so toàn bộ byte archive máy chủ tải trực ti
 Không coi bộ nhớ token là bằng chứng đã thử reload, CI/sandbox là phép thử Site thật hoặc
 một lượt đạt là khả năng tự nhận UI mới sau commit/reload. Giữ nghiệm thu WP-003a đã có.
 
+## Cockpit gửi hello và đọc kết quả (WP-004)
+
+[WP-004](../ops/work-packages/WP-004-cockpit-dispatch.md) đang chuẩn bị PR bảy file;
+chưa merge, dùng token thật hoặc chạy Site/dispatch. Quy trình dưới đây chỉ dùng
+sau các phê duyệt riêng. Giữ nghiệm thu, token và giới hạn lịch sử WP-002/WP-003a/WP-003.
+
+### Review PR và chốt nguồn lượt thật
+
+1. Mở PR → Files changed, đối chiếu đúng bảy file trong WP. Loader, ci.yml,
+   contracts, package/lockfile và pipeline/state.json phải nguyên byte.
+2. CI/Hello trên đúng head phải đạt; heartbeat/send-hello skipped trên push/PR.
+   Đọc số fixture thật: hồi quy WP-003, nhánh UI WP-004, 30 fixture WP-002 và
+   fixture admission Cockpit. DOM/fetch giả không chứng minh Site/CORS/CSP thật.
+3. Review payload Cockpit riêng; không giả source_run_id Actions. Đọc giới hạn
+   request_id: dùng nối bằng chứng, không phải chứng thực nguồn hoặc chống lặp bền vững.
+4. Sau phê duyệt merge riêng, đối soát main M/tree/state/CI/lịch sử và blob B/hash/bytes
+   Cockpit tại M. Không lấy head PR hoặc SHA Sites làm M một cách tự động.
+5. Trước lượt thật, xin duyệt metadata đúng Site Meridian/version/quyền chia sẻ,
+   cặp M/B, token riêng, 5 GET + 1 POST, một run nhận và một commit chỉ đổi updatedAt.
+   Loader giữ nguyên; không redeploy, sao chép Cockpit/state sang Sites hoặc thử cơ chế khác.
+
+### Một lượt Site sau khi được duyệt
+
+1. Ghi Chrome/version thực tế, UTC bắt đầu và thời gian chủ dự án thao tác. Mở Site
+   đã đối soát; loader lỗi thì dừng trước khi nhập token. Chủ dự án tự cấp/giữ/thu hồi
+   token theo phạm vi đã duyệt, không gửi vào chat/ảnh. Xem config/secrets.example.md.
+2. Nhập M/B và token chỉ Contents read vào loader, chọn Function constructor và
+   bấm một lượt. Đối chiếu hash/HTTP 200/WP003A_EXECUTED và revision wp004-v1.
+3. Settings · Đọc state: nhập token đọc riêng, bấm một lần; snapshot phải thuộc M,
+   blob/hash/dữ liệu khớp trước khi nút gửi được mở. Không nhận token loader qua global.
+4. Trong Gửi hello, kiểm repo/M và tác động chỉ đổi updatedAt. Nhập token dispatch
+   riêng Contents read and write, chỉ Meridian, rồi bấm một lần. UI GET main phải
+   bằng M trước đúng một POST event_type hello; ghi request_id và kết quả HTTP.
+5. HTTP 204 chỉ xác nhận gửi. Giữ trang mở; agent đọc run Hello nhận
+   repository_dispatch, attempt 1, SHA M, PASS ADMISSION và CLIENT_REQUEST_ID khớp.
+   verify/heartbeat phải success, send-hello skipped. Lấy H từ log/summary heartbeat.
+6. Agent đối soát H: parent duy nhất M, author/committer github-actions[bot], message
+   chore: heartbeat, chỉ pipeline/state.json và chỉ giá trị updatedAt tăng; mọi byte khác
+   nguyên vẹn. Đọc main/state/lịch sử, không chạy lại hoặc dùng CI nguồn thay CI H.
+7. Agent cung cấp H đã nối với run/request_id. Chủ dự án nhập H và token Contents read
+   riêng vào Đọc kết quả. UI GET metadata H, rồi GET state tại H, kiểm blob/delta;
+   bảng đổi sang kết quả H với nhãn nguồn rõ ràng, nguồn mã M/B vẫn giữ trong bằng chứng.
+8. Gửi ảnh/log vùng kết quả không token, request_id, run/H, Chrome và thời gian thực tế;
+   nghiệm thu riêng vòng UI → Actions → repo → UI. Không gửi HAR/header/Authorization.
+
+Một lượt có tối đa 5 GET + 1 POST trong ứng dụng, có thể thêm OPTIONS: tải mã M,
+đọc state M, kiểm main, POST hello, đọc metadata H và state H. Mỗi thao tác UI có
+timeout 15 giây cho toàn chuỗi request của thao tác đó; không poll hoặc retry.
+Việc agent đọc run/commit qua kết nối GitHub được ghi riêng với request trình duyệt.
+Đọc kết quả không cần Actions read/write cho PAT trình duyệt. Mã kiểm cấu trúc H/delta;
+quan hệ H ↔ run ↔ request_id vẫn phải do agent đối soát, không suy ra từ metadata H đơn lẻ.
+
+| Trạng thái/lỗi | Cách xử lý |
+|---|---|
+| Chưa đọc snapshot hoặc input/môi trường chưa hợp lệ | Không có POST; kiểm hướng dẫn và dữ liệu đầu vào trước lượt được duyệt |
+| MAIN_MOVED / MAIN_RESPONSE | Chưa POST; dừng và đối soát checkpoint, không tự thay SHA |
+| DISPATCH_ACCEPTED | HTTP 204, chờ kiểm run nhận/commit; chưa gọi là hoàn tất |
+| DISPATCH_UNKNOWN / timeout sau POST | Có thể đã có run/commit; agent đọc lịch sử trước, không bấm lại/reload để gửi thêm |
+| HTTP khác 200/204 | Dừng, đối chiếu bằng chứng; không tự nới quyền hoặc retry |
+| RESULT_COMMIT / RESULT_BLOB / RESULT_DELTA | H/bytes không đạt; giữ bảng snapshot M, dừng để kiểm run/commit/state |
+| RESULT_LOADED | Bảng H đã đọc; đối chiếu thêm bằng chứng run và xác nhận của chủ dự án |
+| Rời trang, hết thời gian hoặc cần vượt phạm vi | Dừng, báo phần còn lại; không tự hủy run đã gửi, rerun hoặc mở lượt mới |
+
+Trần đề xuất cho lượt thật là 20 phút từ ngân sách WP-004, chưa phải quyền thực thi.
+GITHUB_TOKEN ghi heartbeat không tự tạo CI push trên H; đọc verify tại M, validation
+trong job và commit/state sau ghi. Dự kiến đúng một run nhận và một commit heartbeat.
+Không gọi provider, không tạo episode, không kết luận tự cập nhật mã sau commit/reload.
+Đóng WP-004/Wave 1 cần nghiệm thu và phê duyệt cập nhật hồ sơ riêng; giữ các phần chưa kiểm.
+
 ## Xoay secret
 
 1. Tạo khoá mới ở nhà cung cấp.
