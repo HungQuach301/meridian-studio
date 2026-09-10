@@ -206,11 +206,14 @@ client dispatch WP-004 và so toàn bộ byte archive máy chủ tải trực ti
 Không coi bộ nhớ token là bằng chứng đã thử reload, CI/sandbox là phép thử Site thật hoặc
 một lượt đạt là khả năng tự nhận UI mới sau commit/reload. Giữ nghiệm thu WP-003a đã có.
 
+Các giới hạn WP-003 ở đoạn trên được giữ theo mốc nghiệm thu lịch sử; vòng dispatch
+và đọc H được nghiệm thu riêng trong hồ sơ WP-004 dưới đây.
+
 ## Cockpit gửi hello và đọc kết quả (WP-004)
 
-[WP-004](../ops/work-packages/WP-004-cockpit-dispatch.md) đang chuẩn bị PR bảy file;
-chưa merge, dùng token thật hoặc chạy Site/dispatch. Quy trình dưới đây chỉ dùng
-sau các phê duyệt riêng. Giữ nghiệm thu, token và giới hạn lịch sử WP-002/WP-003a/WP-003.
+[WP-004](../ops/work-packages/WP-004-cockpit-dispatch.md#9-hồ-sơ-đóng-wp-004)
+đã merge qua PR #11 và được chủ dự án nghiệm thu Hello #30/đọc H. Quy trình dưới đây
+chỉ áp dụng cho lượt mới có phê duyệt riêng; giữ lịch sử và quyền đã dùng của mọi WP.
 
 ### Review PR và chốt nguồn lượt thật
 
@@ -269,11 +272,29 @@ quan hệ H ↔ run ↔ request_id vẫn phải do agent đối soát, không su
 | RESULT_LOADED | Bảng H đã đọc; đối chiếu thêm bằng chứng run và xác nhận của chủ dự án |
 | Rời trang, hết thời gian hoặc cần vượt phạm vi | Dừng, báo phần còn lại; không tự hủy run đã gửi, rerun hoặc mở lượt mới |
 
-Trần đề xuất cho lượt thật là 20 phút từ ngân sách WP-004, chưa phải quyền thực thi.
-GITHUB_TOKEN ghi heartbeat không tự tạo CI push trên H; đọc verify tại M, validation
-trong job và commit/state sau ghi. Dự kiến đúng một run nhận và một commit heartbeat.
-Không gọi provider, không tạo episode, không kết luận tự cập nhật mã sau commit/reload.
-Đóng WP-004/Wave 1 cần nghiệm thu và phê duyệt cập nhật hồ sơ riêng; giữ các phần chưa kiểm.
+Trần 20 phút là phạm vi lượt thật ban đầu; lịch sử thực tế có POST 403, POST 204 và
+hai GET đọc H được duyệt bổ sung với trần 5 phút. Thời gian chủ dự án chưa báo, chưa
+kết luận các trần thời gian đều đạt. Không dùng phần ngân sách còn lại làm quyền thử thêm.
+GITHUB_TOKEN ghi heartbeat không tạo CI push trên H; dùng verify tại M, validation
+trong job và đối soát commit/state. Chủ dự án đã nghiệm thu vòng điều khiển WP-004/Wave 1;
+quyền đóng tài liệu tách riêng, không cấp quyền provider, episode, tự cập nhật mã hoặc Wave 2.
+
+### Hồ sơ vận hành đã nghiệm thu
+
+- M: `ebbacf2fe0dff2f3ab227064d02bc2c3cf940647`; B: `f798741a6a541cd4bb59841244c415d7653a7b55`; H: `98ed4d8c02574e2a44f6fde8a66649d8d1736933`.
+- [Hello #30, attempt 1](https://github.com/HungQuach301/meridian-studio/actions/runs/34484922516) success; request_id `06d23dd4-39e5-46a0-9fc7-85d4f5d6e336`.
+  Agent kiểm hai log admission và HEARTBEAT_COMMIT; H chỉ có parent M và một file state.
+- Giữ POST 403 với request_id `84997aab-a45e-46ad-86ea-1e0e40051417` trước POST 204; không gộp thành một lượt
+  5 GET + 1 POST. Quyền POST đầu đã dùng; không có phê duyệt retry riêng cho POST thứ hai.
+- Hai GET đọc H có phê duyệt bổ sung; HTTP 200/200, WP004_RESULT_LOADED,
+  UTC 2026-09-10T14:01:49.404Z → 14:01:51.624Z. H chỉ đổi updatedAt thành
+  `2026-09-10T13:49:34.919Z`, vẫn $0.00/0 episode/88 byte.
+- Chủ dự án đã nghiệm thu luồng và giữ lịch sử hai POST. Chrome/thời gian thao tác
+  WP-004, nguyên nhân 403 và việc đổi token/quyền giữa hai POST chưa được xác nhận.
+  Không dùng Chrome WP-003 hoặc HTTP 204 để điền các thông tin này.
+- [Hồ sơ đóng](../ops/work-packages/WP-004-cockpit-dispatch.md#9-hồ-sơ-đóng-wp-004)
+  lưu hash, bảo toàn, sổ thời gian và giới hạn. Muốn thử mới phải lập nguồn/phạm vi/quyền
+  mới; không dùng lại lượt đã hết quyền hoặc token giữ 30 ngày làm sự cho phép.
 
 ## Xoay secret
 

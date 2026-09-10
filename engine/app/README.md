@@ -1,10 +1,10 @@
 # Cockpit Meridian · WP-004
 
-Revision hiện tại trong PR: `wp004-v1`. Cockpit giữ khả năng đọc snapshot của
-WP-003, thêm một lệnh hello và đọc kết quả tại commit được đối soát.
+Revision đã merge: `wp004-v1`. Chủ dự án đã nghiệm thu luồng Hello #30 và đọc H.
+Cockpit giữ snapshot WP-003, thêm một hello và đọc kết quả tại commit được đối soát.
 Nguồn chuẩn chỉ ở `HungQuach301/meridian-studio`; loader giữ nguyên byte.
-[Đặc tả WP-004](../ops/work-packages/WP-004-cockpit-dispatch.md) liệt kê đúng bảy file,
-acceptance, quyền và ngân sách. PR chuẩn bị chưa cấp quyền merge hoặc thử thật.
+[Đặc tả và hồ sơ đóng WP-004](../ops/work-packages/WP-004-cockpit-dispatch.md#9-hồ-sơ-đóng-wp-004)
+tách phạm vi PR bảy file, nghiệm thu, lịch sử hai POST và quyền đóng hồ sơ sáu tài liệu.
 
 ## WP-004 · Nguồn và thao tác
 
@@ -16,9 +16,9 @@ acceptance, quyền và ngân sách. PR chuẩn bị chưa cấp quyền merge h
 | H | Commit heartbeat do agent nối với run nhận/request_id; parent duy nhất là M |
 | State kết quả | pipeline/state.json tại H; không gọi dữ liệu mới này là snapshot M |
 
-M/B/H của lượt thật chỉ được chốt sau các phê duyệt tương ứng; không lấy SHA
-checkpoint chuẩn bị hoặc commit kho Sites để chạy mã WP-004. Cặp SHA nguồn/head,
-blob/hash ứng viên và bằng chứng kiểm tra được ghi trong PR sau khi commit tồn tại.
+M/B/H của lượt đã nghiệm thu nằm trong hồ sơ bên dưới. Khi cần lượt mới vẫn phải
+review và duyệt riêng; không lấy checkpoint chuẩn bị hoặc commit kho Sites để chạy mã.
+Commit đóng tài liệu không thay M/B đã chạy và không khiến loader tự nạp revision mới.
 Không hardcode commit của chính file vào mã. Loader vẫn kiểm bytes/blob trước chạy.
 
 ### Trước lượt thật
@@ -113,7 +113,7 @@ Heartbeat dùng GITHUB_TOKEN nên không kỳ vọng CI push mới trên H. Dùn
 validation trong heartbeat và read-back H/state; không gọi CI nguồn là CI H.
 Nghiệm thu vòng thật cần đủ một run nhận, một commit heartbeat và UI hiển thị H.
 
-### Bằng chứng chuẩn bị và phần chưa được phép
+### Bằng chứng chuẩn bị — giữ nguyên kết quả offline/P2 BOM
 
 Offline trong sandbox Node v24.19.0: giữ 88 case hồi quy WP-003 và 124 case WP-004,
 DOM/fetch/timer giả chạy chính loader/Cockpit; worker TypeScript strict đạt, giữ 30
@@ -137,12 +137,53 @@ chỉ gọi qua tsx ESM loader để không cần socket IPC. CI phải chạy l
 và fixture nguyên bản; kết quả CI thực tế/link run nằm trong PR. Không sửa package/workflow
 để né giới hạn môi trường. Typecheck repo không bao phủ JavaScript Cockpit.
 
-Chưa merge/metadata Sites/token thật/dispatch/rerun/provider; chưa nghiệm thu WP-004
-hoặc hoàn tất Wave 1. Hết ngân sách, checkpoint đổi hoặc cần vượt bảy file thì dừng.
-Giữ giới hạn Script inline, reload/xóa và nhập lại token trên Site thật, hai revision
-đối chứng cùng Sites version, trình duyệt/chính sách khác, dữ liệu có episode/lỗi trên
-Site và archive máy chủ nguyên byte. Không suy ra commit/reload tự cập nhật giao diện.
-Giữ toàn bộ hồ sơ WP-003 bên dưới; WP-004 không biến các lượt đã hết quyền thành lượt mới.
+PR #11 đã merge; lượt thật và nghiệm thu được ghi riêng ngay bên dưới. Bằng chứng
+chuẩn bị ở trên vẫn là kết quả offline/CI tại head tương ứng, không đổi thành test Site.
+Giữ giới hạn Script inline, phép kiểm reload/token, hai revision đối chứng cùng Sites
+version, trình duyệt/chính sách khác, dữ liệu có episode/các nhánh lỗi còn lại và archive
+máy chủ nguyên byte. Không suy ra tự cập nhật mã hoặc exactly-once. Phần WP-003 từ
+tiêu đề tham chiếu trở xuống giữ nguyên tại mốc lịch sử, không dùng lại quyền các lượt đó.
+
+## Hồ sơ nghiệm thu luồng WP-004
+
+Chủ dự án nghiệm thu Hello #30 và kết quả đọc H, giữ nguyên lịch sử hai POST.
+[Hồ sơ đóng đầy đủ](../ops/work-packages/WP-004-cockpit-dispatch.md#9-hồ-sơ-đóng-wp-004)
+ghi quyền từng giai đoạn, checks, Site, thông tin còn thiếu và sổ ngân sách.
+
+| Nguồn | Giá trị |
+|---|---|
+| PR đã merge / head đã review | [PR #11](https://github.com/HungQuach301/meridian-studio/pull/11) / `2a72af64724397dfa850d0141fa8153754dbee4f` |
+| M / tree M | `ebbacf2fe0dff2f3ab227064d02bc2c3cf940647` / `d2001451aa4a4a702c8e0e95d429a7be2d20461d` |
+| B / revision | `f798741a6a541cd4bb59841244c415d7653a7b55` / `wp004-v1` |
+| SHA-256 mã / byte | `eb361e3382d4a5bdb3994fd6f73a34448d95bd29d740092cf9fc157712e19683` / 36.767 |
+| State M blob / SHA-256 | `4846d4649f5f7f4460b3560594e9fb38408b66f0` / `bd1df1537db185b1d54cd39dcc9cefb19652dd9354738bb35b824fcf06cf6aee` |
+| H / tree H | `98ed4d8c02574e2a44f6fde8a66649d8d1736933` / `5b218117dfa53de39d0ed2897a8a9a856d3c71ca` |
+| State H blob / SHA-256 | `3ba90b96e8ee3c6d8774d81eb82da8c96a10c6f5` / `5783182b5c082cf78166e2df38caa46999a25ede101b1568dc54ccef8b40ae36` |
+
+| Sự kiện thực tế | Bằng chứng |
+|---|---|
+| POST thứ nhất, HTTP 403 | request_id `84997aab-a45e-46ad-86ea-1e0e40051417`; UTC 2026-09-10T12:50:53.717Z → 12:50:55.833Z; WP004_HTTP_403, postStarted=true. Đối soát sau đó vẫn M, 81 run/29 Hello, không H. |
+| POST thứ hai, HTTP 204 | request_id `06d23dd4-39e5-46a0-9fc7-85d4f5d6e336`; UTC 2026-09-10T13:48:05.142Z → 13:48:06.724Z; WP004_DISPATCH_ACCEPTED. Đây là POST khác lượt 403. |
+| Run nhận | [Hello #30](https://github.com/HungQuach301/meridian-studio/actions/runs/34484922516), ID 34484922516, repository_dispatch, attempt 1, head M; verify/heartbeat success, send-hello skipped. Hai log admission ghi đúng CLIENT_REQUEST_ID; log heartbeat ghi HEARTBEAT_COMMIT H. |
+| Hai GET đọc H được duyệt bổ sung | Cùng request_id của POST 204; UTC 2026-09-10T14:01:49.404Z → 14:01:51.624Z (2,220 giây); commit/state HTTP 200/200; requestNumber 1 của thao tác đọc, WP004_RESULT_LOADED. |
+
+Kết quả H giữ monthlySpendUsd 0, episodes [], 88 byte; updatedAt đổi từ
+`2026-09-09T08:39:17.722Z` thành `2026-09-10T13:49:34.919Z`.
+Ảnh đọc kết quả ghi đúng parent M, blob/hash H và WP004_RESULT_LOADED; agent nối
+request_id với log receiver/HEARTBEAT_COMMIT và đối soát 102 file ngoài state nguyên vẹn.
+Nghiệm thu của chủ dự án là xác nhận riêng, không suy từ HTTP 204 đơn lẻ.
+
+Quyền một POST ban đầu đã dùng ở lượt 403; lượt 204 là POST thứ hai, không có phê duyệt
+retry riêng trong trao đổi. Giữ khác biệt này trong lịch sử. Hai GET đọc H có phê duyệt
+bổ sung, không POST/retry/rerun. requestNumber 1 không phải bộ đếm tất cả các phiên.
+Không tự cấp lượt mới qua việc giữ token, reload hoặc đóng hồ sơ.
+
+Chrome WP-004, thời gian thao tác của chủ dự án và việc đổi token/quyền giữa hai POST
+chưa được cung cấp/xác nhận. Giữ Chrome/token WP-003 bên dưới là mốc lịch sử riêng;
+HTTP thành công không xác minh quyền dư, nguyên nhân 403 hoặc thời hạn token.
+Tổng đã ghi trước đợt đóng: 116 phút 09 giây; còn tối đa 33 phút 51 giây trong 150 phút,
+chưa trừ thời gian chủ dự án chưa báo. Đợt đóng này có trần 10 phút và được cộng tiếp
+trong bàn giao sau commit; không đặt lại sổ hoặc coi khoảng chờ người là thời gian thao tác.
 
 ## Tham chiếu lịch sử: Cockpit chỉ đọc WP-003
 

@@ -98,12 +98,12 @@ Nguồn Meridian là `423353caaf795db764602283abf299b1e7778871`, blob mã thử
 Hồ sơ đầy đủ M/L/S/V/deployment và log ở WP-003a mục 10 và ADR-0006.
 
 Loader yêu cầu commit SHA và blob SHA đã review; không tự theo main. WP-003 đã được chủ dự án
-nghiệm thu Cockpit đọc snapshot rỗng tại commit `a75be6c1b583c820389648bed6f4eb5cca333ce9`;
-[README](../app/README.md) ghi riêng bằng chứng khởi động và `WP003_STATE_LOADED`.
-Vẫn chưa kiểm Script inline, reload/xóa và nhập lại token trên Site thật, phép kiểm đối chứng
-hai revision trên cùng Sites version, trình duyệt/phiên bản khác hoặc chính sách Sites tương lai,
-client dispatch WP-004. Không suy rộng một marker thành nghiệm thu UI; dữ liệu có episode/lỗi
-mới được kiểm offline. Giới hạn so toàn bộ byte archive máy chủ vẫn giữ theo ADR-0006.
+nghiệm thu snapshot rỗng tại `a75be6c1b583c820389648bed6f4eb5cca333ce9`;
+[README](../app/README.md) giữ bằng chứng khởi động/đọc snapshot và hồ sơ WP-004 riêng.
+Vòng dispatch và đọc H của WP-004 đã được chủ dự án nghiệm thu. Vẫn chưa kiểm Script inline,
+phép kiểm reload/token, hai revision đối chứng cùng Sites version, trình duyệt/chính sách khác,
+dữ liệu có episode/các nhánh lỗi còn lại trên Site. Không suy rộng marker thành nghiệm thu UI;
+giới hạn so toàn bộ byte archive máy chủ vẫn giữ theo ADR-0006.
 
 Chủ dự án đã chấp nhận ngoại lệ giới hạn: kho Git do Sites quản lý chỉ lưu bản sao triển khai
 loader và metadata hosting. Meridian vẫn là nguồn sự thật duy nhất; không phát triển UI độc
@@ -158,6 +158,16 @@ merge và đóng hồ sơ không làm Site tự nạp revision mới, không c�
 
 `engine/app/cockpit.js` giữ một file JavaScript trình duyệt, không dependency và không build
 step theo ràng buộc phân phối UI. Đây không phải thay đổi quy ước TypeScript của stage Engine.
+
+WP-004 đã merge qua [PR #11](https://github.com/HungQuach301/meridian-studio/pull/11); chủ dự án nghiệm thu vòng UI → Actions → repo → UI
+qua [Hello #30, attempt 1](https://github.com/HungQuach301/meridian-studio/actions/runs/34484922516) và WP004_RESULT_LOADED.
+Nguồn mã M `ebbacf2fe0dff2f3ab227064d02bc2c3cf940647`, blob B `f798741a6a541cd4bb59841244c415d7653a7b55`;
+kết quả H `98ed4d8c02574e2a44f6fde8a66649d8d1736933` chỉ thay updatedAt, parent duy nhất M.
+UI đọc snapshot M rồi đọc H thủ công sau đối soát, không poll hoặc tự đổi revision mã.
+Token đọc/dispatch nhập riêng; agent nối request_id với run và H. Request_id không phải
+chứng thực nguồn hoặc bảo đảm exactly-once. [Hồ sơ](../ops/work-packages/WP-004-cockpit-dispatch.md#9-hồ-sơ-đóng-wp-004)
+giữ POST 403, POST 204 và hai GET được duyệt bổ sung; không gộp quyền các lượt hoặc
+coi nghiệm thu là quyền dùng token/dispatch/provider tiếp.
 
 ## Bảo mật
 

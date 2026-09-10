@@ -1,10 +1,10 @@
 # WP-004 · Dispatch hello từ Cockpit
 
-**Wave:** 1 · **Phụ thuộc:** WP-002, WP-003 đã merge/nghiệm thu · **Trạng thái:** in-review — chuẩn bị PR, chưa merge hoặc nghiệm thu lượt thật
+**Wave:** 1 · **Phụ thuộc:** WP-002, WP-003 đã merge/nghiệm thu · **Trạng thái:** done — chủ dự án nghiệm thu Hello #30 và đọc H; hồ sơ tại mục 9.
 
-Chủ dự án duyệt chuẩn bị một PR trong đúng bảy file dưới đây, fixture offline,
-kiểm repo, commit/push nhánh WP, nhãn `engine` và CI tự động. Chưa duyệt merge,
-thao tác Sites, cấp/dùng token thật, dispatch/rerun hoặc gọi provider.
+Phê duyệt chuẩn bị ban đầu chỉ gồm PR bảy file, fixture offline, kiểm repo,
+commit/push nhánh WP, nhãn `engine` và CI tự động. Phạm vi bảy file tại mục 4 là
+phạm vi triển khai PR #11; các phê duyệt sau và sáu file đóng hồ sơ được ghi riêng ở mục 9.
 
 ## 1. Mục tiêu
 
@@ -40,10 +40,10 @@ Checkpoint đổi ngoài tác động đã duyệt thì dừng, không tự ch�
 | B | Blob Cockpit đã review tại M; ghi thêm SHA-256 và số byte |
 | H | Commit heartbeat được agent nối với run nhận/request_id; parent duy nhất là M |
 
-M/B/H của lượt thật chưa được cấp trong PR chuẩn bị. Loader vẫn nạp một commit/blob
-cụ thể, Function constructor, không theo main hoặc tự retry. Cockpit dựng UI/listener
-đồng bộ rồi đặt `wp003aComplete`/`wp003aRevision` để tương thích kiểm sau 250 ms.
-Mã UTF-8 không quá 65.536 byte. Marker loader chỉ xác nhận khởi động.
+Trong PR chuẩn bị, M/B/H chưa được cấp cho lượt thật; nguồn đã chạy và nghiệm thu
+nay được ghi ở mục 9. Loader vẫn nạp commit/blob cụ thể bằng Function constructor,
+không theo main hoặc tự retry. Cockpit dựng UI/listener đồng bộ rồi đặt
+`wp003aComplete`/`wp003aRevision` cho kiểm sau 250 ms; marker chỉ xác nhận boot, mã tối đa 65.536 byte.
 
 ### Một lượt gửi và một lượt đọc kết quả
 
@@ -153,7 +153,7 @@ provider. Ghi runtime, SHA nguồn, hash harness, số case thực chạy và k�
 Quét chuỗi giống secret; phân biệt prefix mẫu trong tài liệu với giá trị credential.
 Typecheck repo không bao phủ Cockpit; DOM giả không chứng minh CSS/CSP/CORS/Site thật.
 
-### Sau merge — CHƯA được duyệt
+### Sau merge — tiêu chí đối chiếu với hồ sơ mục 9
 
 Đối soát M/tree/CI/state/lịch sử và B/hash mã/loader; đối soát metadata đúng Site
 Meridian/version/quyền chia sẻ theo phê duyệt riêng. Chủ dự án review bảng nguồn và
@@ -170,18 +170,20 @@ mọi byte khác ngoài token timestamp của state giữ nguyên. Không gọi 
 
 Theo [DoD chung](../definition-of-done.md), cộng thêm:
 
-- [ ] Đúng bảy file, không dependency/action mới, kiểm offline và CI đạt.
-- [ ] PR đủ bốn mục/nhãn engine, chủ dự án đọc toàn bộ diff tại head đã xác minh.
-- [ ] Chủ dự án duyệt merge riêng; main sau merge/checks được đối soát.
-- [ ] Chủ dự án nghiệm thu vòng UI → repository_dispatch → heartbeat → UI tại M/B/H cụ thể.
-- [ ] Backlog/runbook/hồ sơ được đồng bộ sau phê duyệt đóng riêng; chưa done chỉ nhờ HTTP 204.
+- [x] Đúng bảy file, không dependency/action mới, kiểm offline và CI đạt.
+- [x] PR đủ bốn mục/nhãn engine, chủ dự án đọc toàn bộ diff tại head đã xác minh.
+- [x] Chủ dự án duyệt merge riêng; main sau merge/checks được đối soát.
+- [x] Chủ dự án nghiệm thu vòng UI → repository_dispatch → heartbeat → UI tại M/B/H cụ thể.
+- [x] Backlog/runbook/hồ sơ được đồng bộ sau phê duyệt đóng riêng; chưa done chỉ nhờ HTTP 204.
 
 Idempotency/khôi phục stage sản xuất không áp dụng cho UI này; giữ nguyên kiểm
 timestamp, byte preservation và điều kiện dừng của heartbeat WP-002.
-Giữ nghiệm thu WP-003, token đọc giữ 30 ngày theo xác nhận chủ dự án và mọi giới hạn
-đã ghi: Script inline, reload/xóa và nhập lại token trên Site thật, hai revision đối chứng
-cùng Sites version, trình duyệt/chính sách khác, dữ liệu có episode/lỗi trên Site và
-archive máy chủ nguyên byte. Không suy ra commit/reload tự cập nhật UI hoặc Wave 1 đã xong.
+Giữ nghiệm thu WP-003 và token đọc giữ 30 ngày theo xác nhận lịch sử của chủ dự án.
+Script inline, phép kiểm reload/xóa và nhập lại token, hai revision đối chứng cùng
+Sites version, trình duyệt/chính sách khác, dữ liệu có episode/các nhánh lỗi còn lại
+và archive máy chủ nguyên byte vẫn chưa được nghiệm thu. Vòng điều khiển Wave 1 đã
+được chủ dự án nghiệm thu riêng qua WP-004; không suy ra commit/reload tự cập nhật UI,
+exactly-once hoặc quyền thực thi Wave 2.
 
 ## 8. Nguồn kỹ thuật
 
@@ -189,3 +191,103 @@ archive máy chủ nguyên byte. Không suy ra commit/reload tự cập nhật U
 - [repository_dispatch dùng default branch](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#repository_dispatch).
 - [GITHUB_TOKEN và trigger](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow).
 - [Đọc commit: Contents read](https://docs.github.com/en/rest/commits/commits#get-a-commit).
+
+## 9. Hồ sơ đóng WP-004
+
+Chủ dự án đã xác nhận: “Tôi nghiệm thu luồng WP-004 qua Hello #30 và kết quả đọc H,
+giữ nguyên lịch sử hai POST.” Nghiệm thu này độc lập với WP-002/WP-003a/WP-003.
+
+### Nguồn, checks và bảo toàn
+
+| Nguồn | Giá trị |
+|---|---|
+| PR đã merge / head đã review | [PR #11](https://github.com/HungQuach301/meridian-studio/pull/11) / `2a72af64724397dfa850d0141fa8153754dbee4f` |
+| M / tree M | `ebbacf2fe0dff2f3ab227064d02bc2c3cf940647` / `d2001451aa4a4a702c8e0e95d429a7be2d20461d` |
+| B / revision | `f798741a6a541cd4bb59841244c415d7653a7b55` / `wp004-v1` |
+| SHA-256 mã / byte | `eb361e3382d4a5bdb3994fd6f73a34448d95bd29d740092cf9fc157712e19683` / 36.767 |
+| State M blob / SHA-256 | `4846d4649f5f7f4460b3560594e9fb38408b66f0` / `bd1df1537db185b1d54cd39dcc9cefb19652dd9354738bb35b824fcf06cf6aee` |
+| H / tree H | `98ed4d8c02574e2a44f6fde8a66649d8d1736933` / `5b218117dfa53de39d0ed2897a8a9a856d3c71ca` |
+| State H blob / SHA-256 | `3ba90b96e8ee3c6d8774d81eb82da8c96a10c6f5` / `5783182b5c082cf78166e2df38caa46999a25ede101b1568dc54ccef8b40ae36` |
+
+[CI sau merge 34443092297](https://github.com/HungQuach301/meridian-studio/actions/runs/34443092297) và
+[Hello sau merge 34443092257](https://github.com/HungQuach301/meridian-studio/actions/runs/34443092257) success, attempt 1.
+Nguồn M có sáu checks push ban đầu và ba checks của receiver #30; H không có
+check-run riêng. Không gọi CI tại M là CI tại H. Bằng chứng offline/P2 BOM/CI tại
+head review giữ trong PR #11 và README; không chạy lại Site hoặc fixture để đóng hồ sơ.
+
+H có đúng một parent M, author/committer github-actions[bot], message
+`chore: heartbeat`. Cây M và H đều 103 file; 102 file ngoài state giữ nguyên blob/mode.
+State cả hai mốc đều 88 byte, monthlySpendUsd 0, episodes []; so byte chỉ khác
+`updatedAt`: `2026-09-09T08:39:17.722Z` → `2026-09-10T13:49:34.919Z`.
+Trước commit đóng hồ sơ: main H, 82 run/30 Hello, không run đang chạy;
+chỉ thêm một receiver và một heartbeat so với M.
+
+### Lịch sử lượt thật và phạm vi quyền
+
+| Sự kiện thực tế | Bằng chứng |
+|---|---|
+| POST thứ nhất, HTTP 403 | request_id `84997aab-a45e-46ad-86ea-1e0e40051417`; UTC 2026-09-10T12:50:53.717Z → 12:50:55.833Z; WP004_HTTP_403, postStarted=true. Đối soát sau đó vẫn M, 81 run/29 Hello, không H. |
+| POST thứ hai, HTTP 204 | request_id `06d23dd4-39e5-46a0-9fc7-85d4f5d6e336`; UTC 2026-09-10T13:48:05.142Z → 13:48:06.724Z; WP004_DISPATCH_ACCEPTED. Đây là POST khác lượt 403. |
+| Run nhận | [Hello #30](https://github.com/HungQuach301/meridian-studio/actions/runs/34484922516), ID 34484922516, repository_dispatch, attempt 1, head M; verify/heartbeat success, send-hello skipped. Hai log admission ghi đúng CLIENT_REQUEST_ID; log heartbeat ghi HEARTBEAT_COMMIT H. |
+| Hai GET đọc H được duyệt bổ sung | Cùng request_id của POST 204; UTC 2026-09-10T14:01:49.404Z → 14:01:51.624Z (2,220 giây); commit/state HTTP 200/200; requestNumber 1 của thao tác đọc, WP004_RESULT_LOADED. |
+
+Ảnh ứng dụng còn ghi HTTP 200 khi tải mã và snapshot M ở cả hai lần mở.
+Không gộp lịch sử thành một lượt chuẩn 5 GET + 1 POST: quyền POST ban đầu đã sử dụng
+ở lượt 403; POST 204 xuất hiện sau đó, không có phê duyệt retry riêng trong trao đổi.
+Đối soát kỹ thuật và nghiệm thu của chủ dự án không hồi tố xóa khác biệt phạm vi này.
+Hai GET đọc H sau đó có phê duyệt bổ sung rõ ràng, trần 5 phút, không POST/retry/rerun.
+Không suy ra cơ chế chống lặp bền vững từ requestNumber 1 hoặc một receiver thành công.
+
+### Môi trường, thông tin còn thiếu và giới hạn
+
+Nguồn Sites được đối soát trước lượt thử là Meridian Studio,
+`https://meridian-studio.quach-hung.chatgpt.site`, project
+`appgprj_6aa16be27e688191956ed0746e3af820`, version
+`appgprj_6aa16be27e688191956ed0746e3af820~appgver_ff3f047e374481919d61d43b1713372d`.
+Đây là metadata đã đọc ở giai đoạn được duyệt; đợt đóng hồ sơ không đọc/đổi Sites.
+Đối soát triển khai ghi env_set_revision 0; lần đọc cấu hình environment hiện hành
+không thành công, không kết luận đã kiểm toàn bộ cấu hình chưa triển khai.
+
+- Chrome của lượt WP-004 và thời gian chủ dự án chuẩn bị token/thao tác từng lượt:
+  **chưa cung cấp**. Chrome 152.0.7977.83 của WP-003 vẫn là bằng chứng lịch sử riêng.
+- Phạm vi token đã duyệt: token đọc riêng chỉ Meridian/Contents read; token dispatch
+  riêng chỉ Meridian/Contents read and write, Metadata read mặc định, hạn tối đa 30 ngày.
+  Chủ dự án tự nhập/quản lý; agent không nhận token hoặc kiểm quyền/hạn độc lập.
+  Việc đổi token/quyền giữa hai POST chưa được chủ dự án xác nhận; HTTP 403 chưa rõ
+  nguyên nhân. HTTP 204 không chứng minh token không có quyền dư.
+- Giữ các phần chưa kiểm tại mục 7. HTTP 403 đã được quan sát trên Site; các nhánh lỗi
+  khác, BOM và dữ liệu có episode không vì thế trở thành nghiệm thu Site.
+- Không sửa loader, state hoặc code để ghi hồ sơ; không gọi provider, tạo episode,
+  dispatch/rerun, thử thêm hoặc coi đóng hồ sơ là quyền thực thi tiếp.
+
+### Sổ thời gian và commit đóng
+
+| Công việc đã ghi | Thời gian |
+|---|---|
+| Lập kế hoạch WP-004 | 7 phút 41 giây |
+| Chuẩn bị PR | 47 phút 02 giây |
+| Review lần đầu | 6 phút 41 giây |
+| Sửa P2 BOM | 12 phút 09 giây |
+| Review bản sửa | 4 phút 07 giây |
+| Merge và đối soát | 8 phút 43 giây |
+| Kế hoạch preflight | 7 phút 57 giây |
+| Đối soát trước lượt Site | 6 phút 10 giây |
+| Đối soát lượt 403 | 3 phút 25 giây |
+| Đối soát lượt 204 và H | 5 phút 59 giây |
+| Chuẩn bị bước hai GET | 1 phút 11 giây |
+| Đối soát ảnh đọc H | 56 giây |
+| Kế hoạch đóng hồ sơ | 4 phút 08 giây |
+| Tổng đến trước đợt đóng | **116 phút 09 giây** |
+
+Ngân sách WP-004 tối đa 150 phút; tại mốc trên còn tối đa **33 phút 51 giây**,
+chưa trừ thời gian chủ dự án chưa báo. Các khoảng UTC trong log không thay tổng
+thời gian chuẩn bị/thao tác của chủ dự án; không cộng thời gian chờ người giữa lượt.
+Chưa đủ dữ liệu chốt thời gian chủ dự án hoặc kết luận các trần lượt thật đều đạt.
+
+Chủ dự án duyệt đợt đóng hồ sơ bắt đầu `2026-09-10T14:13:56.330Z`, tối đa 10 phút từ ngân sách
+còn lại, một commit tài liệu trên main H và CI tự động; không PR mới.
+Phạm vi đóng riêng gồm đúng sáu file/vị trí trong kế hoạch: backlog dòng WP-004,
+WP-004, phần WP-004 README, runbook, kiến trúc và delivery plan. 97 file còn lại,
+đặc biệt mã/loader/workflows/contracts/package/lockfile/state, phải giữ nguyên.
+Thời gian thực tế đợt đóng, CI tự động và checkpoint sau commit được báo trong bàn giao
+sau commit, không giả định ở mốc sổ này. Không đặt lại ngân sách hoặc dùng quyền WP khác.
