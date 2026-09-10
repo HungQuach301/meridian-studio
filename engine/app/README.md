@@ -15,7 +15,9 @@ Chuẩn bị PR, fixture hoặc CI **không cấp quyền dùng token hoặc th�
 Phải có phê duyệt riêng cho token, Site/version, commit/blob và số lượt.
 Không dùng lại quyền WP-002/WP-003a. WP-003 không có thao tác ghi, gate hoặc dispatch.
 
-PR hai file chưa đóng toàn bộ WP-003: nghiệm thu Site, phê duyệt merge và tài liệu đóng WP
+Chủ dự án đã nghiệm thu một lượt Cockpit đọc snapshot rỗng trên Site; nguồn và bằng chứng
+được ghi tại mục "Hồ sơ nghiệm thu snapshot rỗng WP-003" bên dưới. Quyền lượt thử đó đã dùng hết.
+PR hai file chưa đóng toàn bộ WP-003: review hồ sơ, phê duyệt merge và tài liệu đóng WP
 theo [Definition of Done](../ops/definition-of-done.md) còn là các bước riêng.
 Backlog, runbook và hồ sơ WP-003a không thuộc hai file triển khai được duyệt.
 
@@ -45,8 +47,10 @@ Trình duyệt có thể gửi OPTIONS cho CORS. Lỗi không cấp thêm lượ
 1. Đối soát Site/version/quyền truy cập đã duyệt; ghi thời điểm và số phiên bản Chrome.
    URL dự án: [Meridian Studio](https://meridian-studio.quach-hung.chatgpt.site).
    WP-003 không tự tạo version hoặc triển khai Sites.
-2. Khi được duyệt, chủ dự án tự cấp fine-grained PAT: chỉ Meridian,
+2. Khi được duyệt, chủ dự án tự cấp hoặc dùng lại fine-grained PAT còn hạn: chỉ Meridian,
    **Contents — Read-only**, Metadata read mặc định, hạn tối đa 30 ngày.
+   Theo quyết định của chủ dự án cho WP-003, có thể giữ token phía chủ dự án trong thời hạn
+   30 ngày để giảm việc tạo lại; không kéo dài hạn token hoặc quyền thực hiện lượt thử.
    Không gửi token vào chat/ảnh. Token WP-003a đã xóa theo xác nhận; không dùng lại quyền đó.
 3. Mở Site riêng tư, chờ loader đã khởi động; trang lỗi thì dừng trước khi nhập token.
 4. Nhập commit/blob Cockpit từ hồ sơ, chọn **Function constructor**, nhập token trực tiếp
@@ -54,20 +58,26 @@ Trình duyệt có thể gửi OPTIONS cho CORS. Lỗi không cấp thêm lượ
 5. Đối chiếu bằng chứng loader. Cockpit phải hiện **Meridian Studio · Cockpit**,
    `wp003-v1` và chưa tải dữ liệu. `WP003A_EXECUTED` chỉ xác nhận khởi động mã.
 6. Trong **Settings · Đọc state**, nhập lại token và bấm **Đọc state** một lượt.
-   Có thể dùng cùng token mới ở bước 2; đây là hai lần nhập riêng.
+   Có thể dùng cùng token ở bước 2; đây là hai lần nhập riêng.
    Cockpit không đọc ô token loader hoặc token trên `window`.
 7. Khi có `WP003_STATE_LOADED`, đối chiếu bảng, chi phí tháng, thời điểm và bằng chứng.
    Snapshot rỗng phải hiện **Chưa có episode**, đúng chi phí và timestamp nguồn.
 8. Mở **Nguồn snapshot và bằng chứng lượt đọc**, gửi ảnh/log vùng kết quả đã loại secret
    cùng xác nhận nghiệm thu. Không gửi HAR, Authorization hoặc ảnh token.
-9. Kết thúc: chủ dự án thu hồi token qua GitHub và xác nhận. Quyền/thu hồi là xác nhận
-   của chủ dự án; GET thành công không chứng minh token không có quyền dư.
+9. Kết thúc: chủ dự án xác nhận quyền token và việc giữ hoặc thu hồi. Với quyết định giữ
+   30 ngày của WP-003, không bắt buộc thu hồi sau mỗi lượt; thu hồi qua GitHub khi không
+   còn cần, hoặc ngay khi nghi lộ token. Không dùng token quá hạn hay tự tạo thêm lượt thử.
+   Quyền và vòng đời token là xác nhận của chủ dự án; GET thành công không chứng minh
+   token không có quyền dư. Agent không nhận, đọc hoặc lưu giá trị token.
    Agent đọc lại repo/state/lịch sử để kiểm lượt Site không tạo commit/workflow run.
 
-Ô token xóa ngay khi nhận giá trị và khi kết thúc/rời trang. Tham chiếu chỉ tồn tại
+Giữ token 30 ngày là quyết định về token do chủ dự án quản lý, không phải lưu token trong ứng dụng.
+Mỗi phiên được duyệt vẫn nhập riêng vào loader và Settings; không tự đăng nhập lại hoặc tự tải.
+Trong Cockpit, ô token xóa ngay khi nhận giá trị và khi kết thúc/rời trang. Tham chiếu chỉ tồn tại
 trong hàm xử lý, được thả sau khi gọi fetch và trong phần dọn dẹp.
 Không lưu localStorage, sessionStorage, cookie, URL, log, biến toàn cục hoặc Sites environment.
-Rời trang hủy request đang chạy; trở lại trang không tự đọc lại.
+Cockpit hủy request đọc state khi rời trang; handler pagehide của loader chỉ xóa ô token.
+Giữ trang mở đến khi có kết quả. Chưa nghiệm thu hành vi rời trang/reload trên Site thật.
 
 Lỗi hoặc chưa rõ: dừng, gửi bằng chứng không chứa secret. Không bấm lại, reload để thử thêm,
 chọn Script inline, nâng quyền, dispatch hoặc redeploy.
@@ -126,6 +136,90 @@ thời gian, HTTP status, blob/SHA-256/byte state, số episode và outcome.
 Không ghi token, headers, response body hoặc exception thô.
 Thời gian thao tác không thay `updatedAt` của state.
 
+## Hồ sơ nghiệm thu snapshot rỗng WP-003
+
+Chủ dự án đã xác nhận nghiệm thu Cockpit đọc snapshot rỗng theo hai ảnh kết quả gửi trong
+hội thoại WP-003. Agent đối chiếu ảnh/log với nguồn GitHub và đọc lại repo sau lượt thử;
+đây không phải agent trực tiếp thao tác trình duyệt hoặc kiểm token độc lập.
+
+### Nguồn được nạp và môi trường
+
+| Mốc | Giá trị đã đối soát |
+|---|---|
+| Commit mã và state của lượt thử | `a75be6c1b583c820389648bed6f4eb5cca333ce9` |
+| Tree của commit đã thử | `a2ad382174440362d63c5dacc8fc4d2467861321` |
+| Path mã | `engine/app/cockpit.js` |
+| Blob Cockpit | `a19612eb3d608f848e2970b0d858516ee5f67fc4` |
+| SHA-256 Cockpit | `c51905810fe779b8555aaa67df2a39d0558c7dd168a0c361c45227fdb1d0bbea` |
+| Blob loader giữ nguyên | `589b292d88a7b8578541feea5eedb3634d8cddb4` |
+| SHA-256 loader | `8ce0d5d03b0d1a5a18e7ece4337d7fb68e072c6d3c987619b4f02b794fccbdc0` |
+| Site | [Meridian Studio](https://meridian-studio.quach-hung.chatgpt.site) |
+| Project ID | `appgprj_6aa16be27e688191956ed0746e3af820` |
+| Sites version 1 | `appgprj_6aa16be27e688191956ed0746e3af820~appgver_ff3f047e374481919d61d43b1713372d` |
+| Deployment | `appgdep_6aa16ea9d6088191ad326edc6fa8982b` — succeeded |
+| Commit kho nguồn Sites | `c720b33be01a575e383444fe49e803135d6b0f2b` |
+| Chrome do chủ dự án cung cấp | `152.0.7977.83 (Official Build) (64-bit)` |
+
+Trước lượt thử, metadata đúng Site xác nhận version 1, quyền custom revision 1 chỉ có
+chủ sở hữu, không có editor/nhóm/người xem bổ sung; environment revision 0.
+Archive metadata khớp 2 file, 20.480 byte và hash
+`sha256:4d1385033e77599234abecdd711a84353213b49bacdd36d05fa4a8583001fe97`.
+Không tạo version, triển khai hoặc thay đổi Site trong lượt WP-003 này.
+
+Chủ dự án đồng thời báo "Updating Chrome (29%)". Hồ sơ chỉ ghi phiên bản được cung cấp;
+không xác nhận Chrome đã cập nhật xong hoặc đã thử phiên bản sau cập nhật.
+Commit bổ sung README sau nghiệm thu không phải commit đã nạp trên Site.
+
+### Kết quả trong hai ảnh
+
+| Phần | Bắt đầu UTC ngày 2026-09-09 | Kết thúc UTC | Kết quả |
+|---|---|---|---|
+| Loader, Function constructor | `23:35:23.540Z` | `23:35:24.930Z` | HTTP 200; blob/code SHA-256 khớp; `WP003A_EXECUTED` |
+| Đọc state trong Settings | `23:36:10.465Z` | `23:36:11.340Z` | HTTP 200; `requestNumber: 1`; revision `wp003-v1`; `WP003_STATE_LOADED` |
+
+| Snapshot đã hiển thị | Giá trị |
+|---|---|
+| Path | `pipeline/state.json` |
+| sourceCommit | `a75be6c1b583c820389648bed6f4eb5cca333ce9` |
+| verifiedStateBlob | `4846d4649f5f7f4460b3560594e9fb38408b66f0` |
+| stateSha256 | `bd1df1537db185b1d54cd39dcc9cefb19652dd9354738bb35b824fcf06cf6aee` |
+| stateBytes / episodeCount | `88` / `0` |
+| episodes / UI | `[]` / **Chưa có episode** |
+| monthlySpendUsd / UI | `0` / **$0.00** |
+| updatedAt | `2026-09-09T08:39:17.722Z` |
+
+Chủ dự án báo đã bấm một lần; hai ảnh ghi một lượt loader và một lượt state thuộc cùng
+commit đã duyệt. Log loader chỉ xác nhận khởi động; log state và nội dung bảng là bằng
+chứng riêng cho chức năng được nghiệm thu. Khoảng 47,800 giây từ đầu loader đến cuối
+state không thay thế tổng thời gian thao tác do chủ dự án báo.
+
+Chủ dự án xác nhận token fine-grained chỉ chọn Meridian, Contents Read-only và Metadata
+read mặc định; quyết định giữ token trong 30 ngày. Token này không được ghi nhận là đã thu hồi.
+Đây là xác nhận của chủ dự án, không phải kiểm quyền hoặc ngày hết hạn độc lập của agent.
+
+Đối soát GitHub trước/sau lượt thử: main
+`2eefcc3ac147529813de676b5f37690927fd07d3`, tree
+`85bab2fac00f7af8bbbc0f4f82825bb00f0c66ae`, head PR #10 và state giữ nguyên;
+58 workflow run, 18 Hello, không run đang chạy hoặc run mới. CI/Hello tại head đã thử
+vẫn success, attempt 1; heartbeat/send-hello skipped. Các run từ commit đồng bộ tài liệu
+sau đó là CI mới riêng, không phải phát sinh do lượt Site.
+
+### Sổ thời gian đến trước đợt đồng bộ hồ sơ
+
+| Phần WP-003 | Thời gian thực tế đã ghi |
+|---|---:|
+| Chuẩn bị PR và theo dõi CI | 27 phút 46 giây |
+| Review read-only | 7 phút 42 giây |
+| Chuẩn bị/đối soát trước Site | 3 phút 57 giây |
+| Chủ dự án tạo token và chạy thử | 5 phút 23 giây |
+| Đối soát sau Site | 2 phút 19 giây |
+| Tổng WP-003 trước đồng bộ | **47 phút 07 giây / 90 phút** |
+| Riêng lượt Site, gồm chuẩn bị/thao tác/đối soát | **11 phút 39 giây / 15 phút** |
+
+Khoản thời gian Site nằm trong tổng WP-003, không cộng hai lần. Còn 42 phút 53 giây trước
+đợt đồng bộ này; thời gian đồng bộ README/mô tả PR và theo dõi CI tiếp tục ghi trong PR.
+Không đặt lại ngân sách hoặc dùng ngân sách/quyền WP-003a. Lượt Site đã dùng hết quyền thử.
+
 ## Cập nhật snapshot hoặc revision
 
 1. Agent đối soát read-only commit Meridian mới và blob Cockpit tại đó.
@@ -147,9 +241,12 @@ Chạy kiểm tra sẵn có trong môi trường agent và CI, ghi runtime/hash/
 CI dùng Node 20; `typecheck` chỉ bao phủ `scripts/**/*.ts`, không bao phủ Cockpit.
 DOM giả không chứng minh layout/CSS, CSP/CORS hoặc hành vi Site thật.
 
-Chưa kiểm Site thật cho: Script inline; reload/xóa và nhập lại token; hai revision Cockpit
-cùng Sites version; trình duyệt khác/chính sách Sites tương lai; Cockpit đọc state WP-003;
-client dispatch WP-004. Archive trước đó được đối soát qua tái dựng tar/metadata,
+Site thật đã được chủ dự án nghiệm thu cho đúng snapshot rỗng, nguồn và môi trường nêu trên.
+Fixture có episode và các nhánh lỗi mới được kiểm offline, chưa là nghiệm thu trên Site thật.
+Giữ các phần chưa kiểm: Script inline; reload/xóa và nhập lại token; phép kiểm đối chứng hai
+revision Cockpit cùng Sites version; trình duyệt/phiên bản khác hoặc chính sách Sites tương lai;
+client dispatch WP-004. Không suy rộng lượt đã đạt thành khả năng tự cập nhật UI sau commit/reload.
+Archive trước đó được đối soát qua tái dựng tar/metadata,
 chưa tải trực tiếp archive máy chủ để so toàn bộ byte. Giữ nghiệm thu WP-003a đã có.
 
 Dừng khi checkpoint ngoài phê duyệt đổi; cần sửa loader/contracts hoặc thêm file,
