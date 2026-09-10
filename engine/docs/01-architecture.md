@@ -97,9 +97,13 @@ Nguồn Meridian là `423353caaf795db764602283abf299b1e7778871`, blob mã thử
 `3489a8b303d049b650a222e24e420e51aa110b1b`; kết quả HTTP 200 và `WP003A_EXECUTED`.
 Hồ sơ đầy đủ M/L/S/V/deployment và log ở WP-003a mục 10 và ADR-0006.
 
-Loader yêu cầu commit SHA và blob SHA đã review; không tự theo main. Chưa kiểm Script inline,
-reload/xóa token trên Site thật, hai revision trên cùng phiên bản Sites, trình duyệt khác,
-Cockpit đọc state hoặc client dispatch WP-004. Không suy rộng một marker thành nghiệm thu UI.
+Loader yêu cầu commit SHA và blob SHA đã review; không tự theo main. WP-003 đã được chủ dự án
+nghiệm thu Cockpit đọc snapshot rỗng tại commit `a75be6c1b583c820389648bed6f4eb5cca333ce9`;
+[README](../app/README.md) ghi riêng bằng chứng khởi động và `WP003_STATE_LOADED`.
+Vẫn chưa kiểm Script inline, reload/xóa và nhập lại token trên Site thật, phép kiểm đối chứng
+hai revision trên cùng Sites version, trình duyệt/phiên bản khác hoặc chính sách Sites tương lai,
+client dispatch WP-004. Không suy rộng một marker thành nghiệm thu UI; dữ liệu có episode/lỗi
+mới được kiểm offline. Giới hạn so toàn bộ byte archive máy chủ vẫn giữ theo ADR-0006.
 
 Chủ dự án đã chấp nhận ngoại lệ giới hạn: kho Git do Sites quản lý chỉ lưu bản sao triển khai
 loader và metadata hosting. Meridian vẫn là nguồn sự thật duy nhất; không phát triển UI độc
@@ -145,10 +149,12 @@ https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-githu
 agent chỉ soạn và đưa vào repo theo yêu cầu rõ ràng của chủ dự án.
 Đường dẫn đúng là `engine/docs/02-adr/`, không tạo thư mục có hai lần `engine/`.
 
-WP-003 dùng `engine/app/cockpit.js` và `engine/app/README.md`; phụ thuộc WP-001/WP-003a.
-Đây là đặc tả, chưa triển khai Cockpit. Trước triển khai phải chốt nguồn commit/blob,
-quy trình cập nhật, báo hoàn tất khởi động và token đọc state riêng; không giả định loader
-truyền token qua biến toàn cục. Không cần sửa loader trong đợt đồng bộ tài liệu này.
+WP-003 đã triển khai qua [PR #10](https://github.com/HungQuach301/meridian-studio/pull/10), dùng đúng `engine/app/cockpit.js` và
+`engine/app/README.md`, phụ thuộc WP-001/WP-003a; chủ dự án đã nghiệm thu snapshot rỗng.
+UI khởi động đồng bộ, đặt tín hiệu hoàn tất theo loader hiện có; state đọc tại cùng commit
+đã chọn để nạp mã. Settings nhận token riêng, không lấy token loader qua biến toàn cục.
+Quy trình cập nhật commit/blob và lượt thử riêng được ghi trong README. Loader giữ nguyên;
+merge và đóng hồ sơ không làm Site tự nạp revision mới, không cấp quyền ghi/gate/dispatch.
 
 `engine/app/cockpit.js` giữ một file JavaScript trình duyệt, không dependency và không build
 step theo ràng buộc phân phối UI. Đây không phải thay đổi quy ước TypeScript của stage Engine.
@@ -165,7 +171,10 @@ step theo ràng buộc phân phối UI. Đây không phải thay đổi quy ư�
   chủ dự án phải kiểm quyền khi cấp, không dùng request ghi để kiểm.
 - Credential ngắn hạn do Sites cấp để đẩy bản triển khai là credential kỹ thuật riêng.
   Chỉ được dùng trong giai đoạn Sites đã được duyệt; không thay cho PAT đọc của loader.
-  Đợt đồng bộ tài liệu không lấy credential hoặc dùng token. Token thử đã xóa theo xác nhận chủ dự án.
+  Đợt đồng bộ tài liệu không lấy credential hoặc dùng token. Token thử WP-003a đã xóa theo xác nhận chủ dự án.
+- Token WP-003 được chủ dự án xác nhận chỉ Meridian, Contents Read-only và Metadata read mặc định;
+  chủ dự án giữ token 30 ngày, không phải lưu trong ứng dụng. Mỗi phiên được duyệt vẫn nhập riêng
+  vào loader và Settings; không cấp thêm lượt thử. Agent không kiểm quyền/ngày hết hạn độc lập.
 - Quyền ghi/Actions cho công việc Cockpit sau này phải được duyệt theo WP tương ứng.
   WP-003a không cần và không cấp các quyền đó. Xem R3 trong `06-risk-register.md`.
 

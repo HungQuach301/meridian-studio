@@ -17,13 +17,15 @@ Không dùng lại quyền WP-002/WP-003a. WP-003 không có thao tác ghi, gate
 
 Chủ dự án đã nghiệm thu một lượt Cockpit đọc snapshot rỗng trên Site; nguồn và bằng chứng
 được ghi tại mục "Hồ sơ nghiệm thu snapshot rỗng WP-003" bên dưới. Quyền lượt thử đó đã dùng hết.
-PR hai file chưa đóng toàn bộ WP-003: review hồ sơ, phê duyệt merge và tài liệu đóng WP
-theo [Definition of Done](../ops/definition-of-done.md) còn là các bước riêng.
-Backlog, runbook và hồ sơ WP-003a không thuộc hai file triển khai được duyệt.
+[PR #10](https://github.com/HungQuach301/meridian-studio/pull/10) đã được review và merge; chủ dự án đã duyệt đóng hồ sơ WP-003 bằng
+một commit tài liệu riêng trên main. [Hồ sơ đóng và sổ thời gian](../ops/work-packages/WP-003-cockpit-shell.md#8-hồ-sơ-đóng-wp-003)
+đối chiếu [Definition of Done](../ops/definition-of-done.md), backlog và runbook.
+Đợt đóng hồ sơ có phạm vi tài liệu được duyệt riêng; PR triển khai vẫn chỉ có hai file.
+Nghiệm thu và các giới hạn của WP-003a giữ nguyên; hoàn tất WP-003 không đóng toàn bộ Wave 1.
 
 ## Review nguồn bằng trình duyệt
 
-1. Mở PR WP-003 trên GitHub → **Files changed**: chỉ `engine/app/cockpit.js` và README này.
+1. Mở [PR triển khai WP-003 #10](https://github.com/HungQuach301/meridian-studio/pull/10) trên GitHub → **Files changed**: chỉ `engine/app/cockpit.js` và README này.
 2. Đọc bốn mục PR và kết quả offline. Trong **Checks**, kiểm đúng head đã review:
    CI đạt `validate`, `typecheck`, `guardrails`; Hello đạt `verify`,
    `heartbeat`/`send-hello` skipped. CI push có `guardrails-push`;
@@ -219,6 +221,20 @@ sau đó là CI mới riêng, không phải phát sinh do lượt Site.
 Khoản thời gian Site nằm trong tổng WP-003, không cộng hai lần. Còn 42 phút 53 giây trước
 đợt đồng bộ này; thời gian đồng bộ README/mô tả PR và theo dõi CI tiếp tục ghi trong PR.
 Không đặt lại ngân sách hoặc dùng ngân sách/quyền WP-003a. Lượt Site đã dùng hết quyền thử.
+
+### Mốc sau merge và đóng hồ sơ
+
+Head PR #10 đã review là `4f56a162fbe3184f00e87ba5ca39a938f412f73a`; commit merge/main
+`3d72e2bd6836baa7e752da4c5667a1c6f4ff6fc4`, tree `32cf997a58708e1233ba56b3dbf123f1856eefaa`.
+[CI 34422376087](https://github.com/HungQuach301/meridian-studio/actions/runs/34422376087) và [Hello 34422376095](https://github.com/HungQuach301/meridian-studio/actions/runs/34422376095)
+đều success, attempt 1; heartbeat/send-hello skipped. State giữ nguyên blob/SHA-256/88 byte.
+Đối soát sau merge có 64 workflow run, 21 Hello, không run đang chạy; 62 run trước giữ nguyên.
+
+Nguồn nghiệm thu Site vẫn là `a75be6c1b583c820389648bed6f4eb5cca333ce9`.
+Commit merge và commit đóng tài liệu không phải các lượt Site mới. Bảng thời gian phía trên
+là mốc lịch sử trước đồng bộ; số cộng dồn tiếp theo nằm tại
+[WP-003 mục 8](../ops/work-packages/WP-003-cockpit-shell.md#8-hồ-sơ-đóng-wp-003).
+CI của commit đóng tài liệu được đối soát và báo riêng khi bàn giao, không lấy CI merge thay thế.
 
 ## Cập nhật snapshot hoặc revision
 

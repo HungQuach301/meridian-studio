@@ -120,7 +120,7 @@ chất lượng thấp hơn.
 | Pipeline dừng ở S05 | Fact-check báo cờ đỏ | Đọc `factcheck.json`, sửa thesis hoặc bỏ claim, chạy lại từ S04 |
 | Render vượt thời gian | Quá nhiều scene hoặc layout nặng | Giảm số scene, kiểm tra layout mới thêm |
 | Phụ đề lệch | ASR căn sai ở đoạn có số | Chạy lại S10; nếu lặp lại thì thêm SSML break |
-| UI không cập nhật | PAT hết hạn | Tạo PAT mới trên GitHub → Settings → Developer settings, nhập lại vào ô Settings của cockpit |
+| UI WP-003 không cập nhật | Snapshot ghim commit; hoặc lỗi đọc state cần đối chiếu | Xem sourceCommit và mã lỗi Settings; không mặc định PAT hết hạn. Đổi commit/blob hoặc nhập lại token để thử chỉ sau phê duyệt lượt riêng; không tự reload/retry |
 | Upload thất bại | Hết quota ngày | Chờ sang ngày mới hoặc đăng thủ công |
 
 ## Chạy lại từ giữa pipeline
@@ -146,6 +146,13 @@ ghi một lượt Function constructor trên Sites v1: HTTP 200, blob khớp,
 `WP003A_EXECUTED`, `Loader OK` và UTF-8 đúng, bằng Google Chrome.
 Token chỉ Contents read và đã xóa theo xác nhận chủ dự án. Lượt thử đã dùng hết quyền.
 
+WP-003 đã được chủ dự án nghiệm thu snapshot rỗng và [PR #10](https://github.com/HungQuach301/meridian-studio/pull/10) đã merge.
+Nguồn đã chạy là `a75be6c1b583c820389648bed6f4eb5cca333ce9`; snapshot state cùng commit,
+`WP003_STATE_LOADED`, 0 episode và $0.00. [README](../app/README.md) ghi đầy đủ nguồn,
+hai ảnh kết quả, Chrome và các giới hạn. Merge/code tài liệu sau đó không phải lượt Site mới.
+Token WP-003 do chủ dự án xác nhận chỉ Meridian, Contents Read-only và Metadata read mặc định,
+giữ 30 ngày; khác token WP-003a đã xóa. Không lưu token trong ứng dụng hoặc cấp thêm lượt thử.
+
 ### Review và đóng gói nguồn
 
 1. Chủ dự án duyệt riêng phạm vi; agent xác minh main/tree/state/CI/lịch sử Meridian.
@@ -162,27 +169,42 @@ Token chỉ Contents read và đã xóa theo xác nhận chủ dự án. Lượt
 
 ### Một lượt kiểm Site khi được duyệt riêng
 
-1. Mở Site riêng tư, kiểm loader đã khởi động. Không nhập token nếu trang lỗi.
-2. Lấy commit Meridian và blob `engine/app/cockpit.js` từ hồ sơ review, không lấy commit Sites.
-3. Chọn đúng cơ chế được duyệt; chủ dự án tự nhập token chỉ Contents read và chạy một lượt.
-4. Lưu log không chứa token: repo/path/ref, expected/verified blob, code SHA-256,
-   HTTP status, outcome, thời gian và trình duyệt; đối chiếu nội dung hiển thị.
-5. Gửi ảnh vùng kết quả không chứa token và xác nhận nghiệm thu; không gửi HAR/Authorization.
-6. Kết quả lỗi hoặc chưa rõ: dừng, báo bằng chứng; không bấm lại, reload để thử thêm,
-   đổi Script inline, đổi quyền, dispatch/rerun hoặc tự chuyển Pages.
+Quy trình dưới đây chỉ áp dụng cho lượt mới được duyệt; lượt nghiệm thu WP-003 đã dùng hết quyền.
 
-Các bước trên mô tả quy trình, không cấp thêm lượt thử. Site v1 đã thử thành công;
-đợt đồng bộ tài liệu không thao tác Sites hoặc dùng token.
+1. Đối soát đúng Site/version/quyền chia sẻ; ghi thời điểm và phiên bản trình duyệt.
+   Mở Site riêng tư, kiểm loader đã khởi động. Không nhập token nếu trang lỗi.
+2. Lấy commit Meridian và blob `engine/app/cockpit.js` đã review; state đọc tại cùng commit.
+   Không lấy commit Sites hoặc tự dùng main mới nhất. Đối chiếu bảng nguồn trong README/hồ sơ.
+3. Chọn Function constructor theo phê duyệt; chủ dự án nhập token chỉ Contents read vào loader
+   và bấm một lượt. Có thể dùng token còn hạn do chủ dự án giữ tối đa 30 ngày, chỉ Meridian.
+4. Đối chiếu HTTP 200, blob/code SHA-256 và `WP003A_EXECUTED`; marker chỉ xác nhận khởi động.
+   Trong **Settings · Đọc state**, nhập token riêng rồi bấm **Đọc state** một lần.
+   Cockpit không nhận token từ loader/global; không lưu storage/cookie/URL/log/Sites environment.
+5. Đối chiếu `WP003_STATE_LOADED`, sourceCommit, verifiedStateBlob, stateSha256, số byte/episode
+   và bảng hiển thị. Snapshot rỗng vẫn phải hiện đúng monthlySpendUsd và updatedAt nguồn.
+6. Gửi ảnh/log vùng kết quả không chứa token cùng xác nhận nghiệm thu; không gửi HAR/Authorization.
+   Chủ dự án xác nhận quyền và việc giữ/thu hồi token. GET thành công không kiểm được quyền dư.
+   Token giữ 30 ngày không cấp thêm lượt; thu hồi khi không còn cần hoặc nghi lộ.
+7. Lỗi hoặc chưa rõ: dừng, báo bằng chứng; không bấm lại, reload để thử thêm, đổi Script inline,
+   nâng quyền, dispatch/rerun hoặc tự chuyển Pages. Agent đọc lại repo/state/lịch sử khi được duyệt.
+
+Một lượt có tối đa một GET mã và một GET state; có thể có OPTIONS của trình duyệt.
+Đợt đóng hồ sơ chỉ cập nhật tài liệu, không thao tác Sites hoặc dùng token.
 
 ### Cập nhật Cockpit và giới hạn
 
-Commit mã mới không làm loader tự theo main. Phải xác minh commit/blob được phép nạp;
-quy trình cập nhật và token đọc state thuộc WP-003. Nếu thay loader thì review Meridian
-trước, rồi xin duyệt đồng bộ nguồn/lưu version/triển khai riêng. Không dán toàn bộ UI vào Sites.
+Commit mới không làm loader tự theo main. WP-003 đọc snapshot tại cùng commit đã chọn để nạp mã;
+muốn cập nhật phải review commit/blob mới và duyệt riêng lượt nạp theo [README](../app/README.md).
+Giữ loader nguyên byte thì thiết kế không cần redeploy; chưa có phép kiểm đối chứng hai revision.
+Nếu thay loader, review Meridian rồi duyệt đồng bộ nguồn/lưu version/triển khai riêng.
+Không dán toàn bộ UI hoặc sao chép Cockpit/state vào Sites.
 
-Chưa kiểm Script inline, reload/xóa token trên Site thật, hai revision cùng Sites version,
-trình duyệt khác, UI đọc state hoặc client dispatch WP-004. Không coi việc cấu hình token
-trong bộ nhớ là bằng chứng đã thử reload; không coi CI/sandbox là phép thử Site thật.
+Đã nghiệm thu đúng snapshot rỗng của WP-003; fixture có episode và nhánh lỗi mới kiểm offline.
+Chưa kiểm Script inline, reload/xóa và nhập lại token trên Site thật, phép kiểm đối chứng hai
+revision trên cùng Sites version, trình duyệt/phiên bản khác hoặc chính sách Sites tương lai,
+client dispatch WP-004 và so toàn bộ byte archive máy chủ tải trực tiếp.
+Không coi bộ nhớ token là bằng chứng đã thử reload, CI/sandbox là phép thử Site thật hoặc
+một lượt đạt là khả năng tự nhận UI mới sau commit/reload. Giữ nghiệm thu WP-003a đã có.
 
 ## Xoay secret
 

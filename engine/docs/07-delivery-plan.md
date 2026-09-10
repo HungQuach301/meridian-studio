@@ -42,12 +42,16 @@ các tài liệu. Đây là lúc tốn công đọc nhất — đừng bỏ qua.
 | 1.2 | WP-001 CI hardening | Validate, typecheck và guardrails | Nghiệm thu CI được ghi tại dòng WP-001 trong backlog |
 | 1.3 | WP-002 Workflow hello + dispatch | Heartbeat và vòng gửi/nhận trong GitHub | PR #7 và ba run thật đã được chủ dự án nghiệm thu; chưa chứng minh client ngoài GitHub |
 | 1.3a | WP-003a Spike loader Sites | Có bằng chứng nạp/thực thi mã động hoặc kết luận bị chặn | Chủ dự án thử Site thật, chấp nhận ADR-0006 và cập nhật WP-003; giới hạn 2 giờ |
-| 1.4 | WP-003 Cockpit UI shell | Đọc và hiển thị pipeline state | Sau WP-001 và WP-003a; theo phương án được duyệt, hiển thị đúng trạng thái rỗng |
+| 1.4 | WP-003 Cockpit UI shell | Đọc snapshot state cùng commit mã | Đã nghiệm thu snapshot rỗng; [PR #10](https://github.com/HungQuach301/meridian-studio/pull/10) đã merge, [CI sau merge](https://github.com/HungQuach301/meridian-studio/actions/runs/34422376087) và [Hello](https://github.com/HungQuach301/meridian-studio/actions/runs/34422376095) đạt; [hồ sơ và giới hạn](../ops/work-packages/WP-003-cockpit-shell.md#8-hồ-sơ-đóng-wp-003) |
 | 1.5 | WP-004 Nút dispatch từ UI | Client ngoài GitHub kích hoạt được workflow | Sau WP-002 và WP-003; bằng chứng thực thi riêng, không dùng lại nghiệm thu WP-002 |
 | 1.6 | Nạp secret vào Actions Secrets khi WP tương ứng cần | Không secret trong code | Chủ dự án duyệt riêng; agent kiểm mã, không yêu cầu chủ dự án chạy lệnh |
 
 **DoD Wave 1:** anh bấm một nút trên trình duyệt, một job chạy, ghi một file vào repo, UI hiển thị
 file đó. Chưa có nội dung gì — chỉ có vòng điều khiển.
+
+**Trạng thái sau WP-003:** Wave 1 chưa hoàn tất. WP-004 vẫn chưa được chứng minh bằng client
+ngoài GitHub; snapshot chỉ đọc không thay nghiệm thu vòng điều khiển trên. Không dùng lại
+quyền WP-002/WP-003a/WP-003 hoặc suy ra UI tự cập nhật sau commit/reload.
 
 ---
 
