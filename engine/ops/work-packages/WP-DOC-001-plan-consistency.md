@@ -2,7 +2,7 @@
 
 **Wave:** 2 · **Loại:** tài liệu vận hành
 **Phụ thuộc:** WP-004 đã merge và nghiệm thu
-**Trạng thái:** in-review — chưa merge, chưa nghiệm thu
+**Trạng thái:** done — chủ dự án đã nghiệm thu PR #12; hồ sơ đóng tại mục 9
 
 ## 1. Mục tiêu
 
@@ -92,11 +92,11 @@ Theo definition-of-done, áp cho gói tài liệu này. Điều kiện stage/ide
 không áp dụng vì không thêm stage hoặc code. Không có thao tác vận hành mới để
 sửa runbook. Chưa tự ghi done trước chủ dự án nghiệm thu.
 
-- [ ] Diff chỉ có ba file và đúng nội dung được duyệt.
-- [ ] Kiểm bảng, bảo toàn tree/state và quét credential đã đối soát.
-- [ ] CI push và PR đạt trên đúng nguồn; không dispatch/rerun.
-- [ ] PR đủ Đã làm gì / Đã kiểm thế nào / File đã chạm / Rủi ro còn lại.
-- [ ] Chủ dự án đã xem diff và chốt nghiệm thu; merge là phê duyệt riêng.
+- [x] Diff chỉ có ba file và đúng nội dung được duyệt.
+- [x] Kiểm bảng, bảo toàn tree/state và quét credential đã đối soát.
+- [x] CI push và PR đạt trên đúng nguồn; không dispatch/rerun.
+- [x] PR đủ Đã làm gì / Đã kiểm thế nào / File đã chạm / Rủi ro còn lại.
+- [x] Chủ dự án đã xem diff và chốt nghiệm thu; merge là phê duyệt riêng.
 
 Các mục trên được đối soát bằng kết quả thực tế trong PR để không tạo commit
 chỉ cập nhật checkbox sau mỗi lượt CI.
@@ -117,3 +117,76 @@ giao được ghi trong mô tả PR và phản hồi cuối; không tính thời
 
 Chủ dự án mở PR → Files changed để xem ba file → Checks để xem đúng SHA →
 đọc Rủi ro còn lại. Chưa bấm Merge nếu chưa có phê duyệt merge riêng.
+
+## 9. Hồ sơ đóng WP-DOC-001
+
+### Nghiệm thu và bằng chứng
+
+Ngày 2026-09-11, chủ dự án xác nhận: **“Nghiệm thu và đóng WP-DOC-001”**.
+Phê duyệt merge trước đó là **“Duyệt merge PR #12”**; hai phạm vi được ghi riêng.
+Nghiệm thu chỉ áp dụng ba sửa tài liệu của gói này và giữ mọi giới hạn bên dưới.
+
+- [PR #12](https://github.com/HungQuach301/meridian-studio/pull/12), một commit nguồn:
+  `5a0665e04b9ee40b1f1b51c521407c084d3bac4e`, đã được review chỉ đọc.
+- Commit merge: `59254e929ba6787ccbb3d65efd61426d5f5560d1`;
+  tree `05faf12bbb0d92a0b063087f2f1e9fe2a28953d5`, 104 file.
+  Tree sau merge khớp hoàn toàn tree head đã review.
+- Diff PR đúng ba file; backlog có 36 dòng dữ liệu, mỗi dòng năm cột, không trùng
+  hoặc mất ID. Mọi dòng done cũ và WP-004a giữ nguyên. WP-006a chỉ đổi dependency
+  ở đầu file. Toàn bộ 101 file nguồn ngoài phạm vi PR giữ nguyên.
+- Năm run tự động của nhánh/PR đều success, attempt 1; liên kết và kết quả kiểm
+  được ghi trong mô tả PR. Lượt CI do gắn nhãn engine là sự kiện labeled,
+  không phải dispatch/rerun.
+- [CI sau merge 34549198224](https://github.com/HungQuach301/meridian-studio/actions/runs/34549198224):
+  success, attempt 1; Node 20.20.2, 9/9 test, validate, typecheck,
+  guardrails-push và 33 fixture guardrails đạt trên đúng commit merge.
+- [Hello sau merge 34549198221](https://github.com/HungQuach301/meridian-studio/actions/runs/34549198221):
+  success, attempt 1; verify đạt; heartbeat/send-hello skipped.
+- Trước commit đóng hồ sơ: 91 workflow run, gồm 34 Hello; không có run đang chạy.
+  State giữ nguyên toàn bộ 88 byte và newline cuối, blob/SHA-256 như mục 2.
+- Quét nguồn của PR không phát hiện credential thực; tám hit chuỗi ngắn trong
+  tài liệu đã được đối soát là nội dung tài liệu, không báo số hit literal bằng 0.
+
+### Phạm vi commit đóng hồ sơ được duyệt riêng
+
+Chủ dự án duyệt đúng hai vị trí: dòng WP-DOC-001 trong `engine/ops/backlog.md`
+và trạng thái, bằng chứng nghiệm thu, sổ thời gian trong file WP này.
+Cho phép một commit tài liệu trên main và CI tự động, tối đa 10 phút riêng.
+Các quyền ở mục 5 là lịch sử giai đoạn chuẩn bị PR; quyền ghi main lần này
+đến từ phê duyệt đóng hồ sơ mới, không suy ra từ quyền chuẩn bị hoặc merge.
+
+Checkpoint trước ghi là commit merge/tree nêu trên; khác thì dừng.
+Mọi blob/mode ngoài hai file giữ nguyên. Không mở PR mới hoặc thêm commit
+chỉ để ghi kết quả CI/thời gian sau commit đóng. Agent đối soát các kết quả đó
+và cung cấp checkpoint thực tế trong phản hồi bàn giao.
+
+### Sổ thời gian cộng dồn
+
+| Phạm vi được duyệt riêng | Giới hạn | Thực tế |
+|---|---|---|
+| Chuẩn bị PR và review chỉ đọc | 20 phút | 18 phút 39 giây |
+| Merge và đối soát CI | 10 phút | 4 phút 42 giây |
+| Đóng hồ sơ | 10 phút | 2 phút 32 giây tại mốc chuẩn bị nội dung 2026-09-11T01:30:17.267Z; chưa bao gồm commit và CI sau đó |
+
+Trước lượt đóng đã dùng **23 phút 21 giây**. Cộng tới mốc trên:
+**25 phút 53 giây**. Thời gian kết thúc thực tế của lượt đóng và tổng cuối
+được báo ở phản hồi bàn giao. Không tính thời gian chờ chủ dự án; không gộp
+phần dư các phạm vi thành quyền làm việc tiếp. Sổ WP-004a giữ nguyên.
+
+### Giới hạn và bước tiếp theo
+
+- Hai mục moderate ở Vitest và @vitest/mocker, cùng
+  [GHSA-82fw-gwwq-j7x9](https://github.com/advisories/GHSA-82fw-gwwq-j7x9),
+  vẫn được báo trong CI sau merge; báo cáo có 0 high/critical.
+  Gói này không đổi dependency hoặc tuyên bố đã khắc phục cảnh báo.
+- WP-004a vẫn todo, bị chặn trước cài/push bởi metadata/lockfile chưa đủ;
+  chưa có hai render thật, chưa mở WP-005. Không dùng CI để vượt giới hạn
+  truy cập metadata. Các phần đặc tả Gallery ngoài sửa đã duyệt vẫn cần
+  chuẩn hóa trước triển khai.
+- Giữ hồ sơ WP-003/WP-004, lịch sử POST 403 rồi POST 204 và hai GET riêng;
+  không thử thêm Sites, browser, render, dispatch/rerun, provider/token
+  hoặc Release. Không chuyển quyền/ngân sách từ gói này sang WP-004a.
+- Chủ dự án mở commit đóng để xem hai file và các run CI tự động do agent
+  cung cấp. Sau khi CI đạt, chốt checkpoint mới riêng trước khi tiếp tục
+  WP-004a; không tự thay baseline cũ hoặc coi việc đóng tài liệu là quyền
+  triển khai canvas.
