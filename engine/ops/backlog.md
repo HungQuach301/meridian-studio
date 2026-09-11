@@ -11,9 +11,10 @@ Một WP = một task Codex = một PR. Không giao hai WP trong một task.
 | WP-003a | **Spike:** Sites có nạp mã động không | 1 | WP-000 | done — chủ dự án nghiệm thu hồ sơ kết luận và Function/UTF-8 trên Sites v1; [PR #8](https://github.com/HungQuach301/meridian-studio/pull/8), [PR #9](https://github.com/HungQuach301/meridian-studio/pull/9), [ADR-0006 Chấp nhận](../docs/02-adr/ADR-0006-cockpit-delivery.md), [hồ sơ](work-packages/WP-003a-sites-loader-spike.md#10-hồ-sơ-kết-luận-đã-nghiệm-thu); [CI sau merge](https://github.com/HungQuach301/meridian-studio/actions/runs/34371852854) và [Hello sau merge](https://github.com/HungQuach301/meridian-studio/actions/runs/34371852756) success, attempt 1; giữ nguyên các phần chưa kiểm trong ADR-0006 |
 | WP-003 | Cockpit UI shell | 1 | WP-001, WP-003a | done — [PR #10](https://github.com/HungQuach301/meridian-studio/pull/10); chủ dự án nghiệm thu [snapshot rỗng](https://github.com/HungQuach301/meridian-studio/blob/4f56a162fbe3184f00e87ba5ca39a938f412f73a/engine/app/README.md#hồ-sơ-nghiệm-thu-snapshot-rỗng-wp-003) tại commit a75be6c1b583c820389648bed6f4eb5cca333ce9; [hồ sơ đóng](work-packages/WP-003-cockpit-shell.md#8-hồ-sơ-đóng-wp-003); [CI sau merge](https://github.com/HungQuach301/meridian-studio/actions/runs/34422376087) và [Hello sau merge](https://github.com/HungQuach301/meridian-studio/actions/runs/34422376095) success, attempt 1; giữ các phần chưa kiểm |
 | WP-004 | Nút dispatch từ UI | 1 | WP-002, WP-003 | done — [PR #11](https://github.com/HungQuach301/meridian-studio/pull/11); chủ dự án nghiệm thu [Hello #30, attempt 1](https://github.com/HungQuach301/meridian-studio/actions/runs/34484922516) và đọc [H](https://github.com/HungQuach301/meridian-studio/commit/98ed4d8c02574e2a44f6fde8a66649d8d1736933) với WP004_RESULT_LOADED; [hồ sơ đóng](work-packages/WP-004-cockpit-dispatch.md#9-hồ-sơ-đóng-wp-004) giữ riêng POST 403, POST 204 và hai GET được duyệt bổ sung; chỉ updatedAt đổi, mọi giới hạn còn lại giữ nguyên |
+| WP-DOC-001 | [Sửa ba điểm lệch của kế hoạch](work-packages/WP-DOC-001-plan-consistency.md) | 2 | WP-004 | in-review |
 | WP-004a | **SPIKE: canvas liên tục 6000x3400** | 2 | WP-002 | todo |
 | WP-005 | Remotion setup + render mẫu | 2 | WP-004a | todo |
-| WP-006 | Ba layout đầu | 2 | WP-005 | todo |
+| WP-006 | Năm layout đầu | 2 | WP-005 | todo |
 | WP-006a | **CỔNG CHẶN:** Layout Gallery + duyệt chất lượng | 2 | WP-006 | todo |
 | WP-007 | Stage TTS + ASR timing | 2 | WP-005 | todo |
 | WP-008 | Ghép ffmpeg + caption | 2 | WP-006, WP-007 | todo |
@@ -21,9 +22,7 @@ Một WP = một task Codex = một PR. Không giao hai WP trong một task.
 | WP-009a | Interface state backend + provider | 3 | WP-000 | todo |
 | WP-009b | Golden set 5 brief trong CI | 3 | WP-001 | todo |
 | WP-010 | Stage S04 Research + sổ nguồn | 3 | WP-001 | todo |
-| WP-011 | Stage S05 Fact-check | 3 | WP-009a | Interface state backend + provider | 3 | WP-000 | todo |
-| WP-009b | Golden set 5 brief trong CI | 3 | WP-001 | todo |
-| WP-010 | todo |
+| WP-011 | Stage S05 Fact-check | 3 | WP-009a | todo |
 | WP-012 | Stage S06 Outline | 3 | WP-011 | todo |
 | WP-013 | Stage S07 Script | 3 | WP-012 | todo |
 | WP-014 | Gate 2 editor trên cockpit | 3 | WP-013 | todo |
@@ -35,9 +34,7 @@ Một WP = một task Codex = một PR. Không giao hai WP trong một task.
 | WP-018 | Render matrix song song | 4 | WP-016, WP-017 | todo |
 | WP-019 | Auto-QA kỹ thuật + QA thị giác + Gate 3 | 4 | WP-018 | todo |
 | WP-020 | OAuth YouTube | 5 | — | todo |
-| WP-021 | Sinh thumbnail | 5 | WP-015a | **S09.5 Preflight — 12 kiểm tra tĩnh** | 4 | WP-015 | todo |
-| WP-017a | **S11.5 Proof Render** | 4 | WP-017 | todo |
-| WP-016 | todo |
+| WP-021 | Sinh thumbnail | 5 | WP-015a | todo |
 | WP-022 | Stage S14a Packaging | 5 | WP-019, WP-021 | todo |
 | WP-023 | Stage S14b Upload + quota meter | 5 | WP-020, WP-022 | todo |
 | WP-024 | Stage S14c Metrics | 5 | WP-023 | todo |

@@ -1,6 +1,6 @@
 # WP-006a · Layout Gallery — cổng chất lượng hình ảnh
 
-**Wave:** 2 · **Phụ thuộc:** WP-005 · **Trạng thái:** todo
+**Wave:** 2 · **Phụ thuộc:** WP-006 · **Trạng thái:** todo
 **Đây là cổng chặn. Không WP nào của Wave 4 được bắt đầu trước khi WP này qua.**
 
 ## 1. Mục tiêu
