@@ -1,6 +1,7 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { BENCHMARK_SPEC, BROWSER_VERSION, BROWSER_ARCHIVE_URL, PREFLIGHT_REQUIREMENTS, classifyMemory, evaluateBenchmarkAcceptance, evaluateFrameCadence, parseFfprobeVideo, parseProcStat, parseProcStatus, parseProcessRssObservation, validateBenchmarkConfig, validateBenchmarkPreflight, validateRunAuthorization, reconcileObserverEvents, verifyObserverCapability, singleLocalNavigation, observeActiveProcessRestarts } from './canvas-spike.js';
+import { BENCHMARK_SPEC, BROWSER_VERSION, BROWSER_ARCHIVE_URL, LINUX_OBSERVER_SOURCE, OBSERVER_PYTHON, PREFLIGHT_REQUIREMENTS, classifyMemory, evaluateBenchmarkAcceptance, evaluateFrameCadence, parseFfprobeVideo, parseProcStat, parseProcStatus, parseProcessRssObservation, validateBenchmarkConfig, validateBenchmarkPreflight, validateRunAuthorization, reconcileObserverEvents, verifyObserverCapability, singleLocalNavigation, observeActiveProcessRestarts } from './canvas-spike.js';
+import {execFileSync} from 'node:child_process';
 import type { BenchmarkAcceptanceEvidence, BenchmarkPreflight, EvidenceReference, MemoryEvidence, MemorySample, ProcessChange, ProcessRss, RenderAcceptanceEvidence } from './canvas-spike.js';
 
 const MiB = 1024 * 1024;
@@ -85,17 +86,17 @@ function observerEvents(): Record<string, unknown>[] {
     {type: 'sample', timestampMs: 19, completedFrames: 5400, rootProcess: {pid: 100, startTimeTicks: '1000'}, treeComplete: true,
       processes: [{pid: 100, startTimeTicks: '1000', parentPid: 50, role: 'browser', rssBytes: 100 * MiB}]},
     {type: 'closing', timestampMs: 20, expectedFinalClose: true},
-    {type: 'cleanup-signal', timestampMs: 21, pid: 100, startTimeTicks: '1000', signal: 9},
-    {type: 'exit-pending', timestampMs: 22, pid: 100, startTimeTicks: '1000', waitStatus: 9, exitCode: null, signal: 9},
-    {type: 'exit', timestampMs: 23, pid: 100, startTimeTicks: '1000', waitStatus: 9, exitCode: null, signal: 9, expected: true},
-    {type: 'summary', timestampMs: 24, complete: true, crashedProcesses: 0, expectedFinalCloseExcluded: true},
+    {type: 'cleanup-signal', timestampMs: 21, pid: 100, startTimeTicks: '1000', signal: 15},
+    {type: 'exit-pending', timestampMs: 22, pid: 100, startTimeTicks: '1000', waitStatus: 0, exitCode: 0, signal: null},
+    {type: 'exit', timestampMs: 23, pid: 100, startTimeTicks: '1000', waitStatus: 0, exitCode: 0, signal: null, expected: true},
+    {type: 'summary', timestampMs: 24, lifecycleComplete: true, complete: true, crashedProcesses: 0, unattributedTerminations: 0, expectedFinalCloseExcluded: true},
   ];
 }
 
 test('lifecycle reconciliation distinguishes deliberate final close from crashes', () => {
   assert.equal(reconcileObserverEvents(observerEvents()).complete, true);
   const events = observerEvents().map(event => event.type === 'closing' ? {...event, expectedFinalClose: false}
-    : event.type === 'exit' ? {...event, expected: false}
+    : event.type === 'exit' || event.type === 'exit-pending' ? {...event, waitStatus: 11, exitCode: null, signal: 11, expected: false}
       : event.type === 'summary' ? {...event, crashedProcesses: 1, expectedFinalCloseExcluded: false} : event);
   const result = reconcileObserverEvents(events);
   assert.equal(result.complete, true); assert.equal(result.crashedProcesses, 1); assert.equal(result.expectedFinalCloseExcluded, false);
@@ -123,14 +124,14 @@ function fullObserverEvents(): Record<string, unknown>[] {
   let time = samples.at(-1)!.timestampMs;
   events.push({type: 'closing', timestampMs: ++time, expectedFinalClose: true});
   for (const process of processes) events.push({type: 'cleanup-signal', timestampMs: ++time,
-    pid: process.pid, startTimeTicks: process.startTimeTicks, signal: 9});
+    pid: process.pid, startTimeTicks: process.startTimeTicks, signal: 15});
   // Children exit first while the root is still observable.
   for (const process of [...processes.slice(1), processes[0]!]) {
-    const terminal = {pid: process.pid, startTimeTicks: process.startTimeTicks, waitStatus: 9, exitCode: null, signal: 9};
+    const terminal = {pid: process.pid, startTimeTicks: process.startTimeTicks, waitStatus: 0, exitCode: 0, signal: null};
     events.push({type: 'exit-pending', timestampMs: ++time, ...terminal},
       {type: 'exit', timestampMs: ++time, ...terminal, expected: true});
   }
-  events.push({type: 'summary', timestampMs: ++time, complete: true, crashedProcesses: 0, expectedFinalCloseExcluded: true});
+  events.push({type: 'summary', timestampMs: ++time, lifecycleComplete: true, complete: true, crashedProcesses: 0, unattributedTerminations: 0, expectedFinalCloseExcluded: true});
   return events;
 }
 
@@ -172,7 +173,7 @@ test('a final-close label cannot exempt SIGSEGV or a nonzero exit code', () => {
   }
 });
 
-test('an exit committed before cleanup remains a crash even when both signals are SIGKILL', () => {
+test('an exit observed before cleanup remains a known crash', () => {
   for (const terminal of [{waitStatus: 9, signal: 9, exitCode: null}, {waitStatus: 11, signal: 11, exitCode: null},
     {waitStatus: 7 << 8, signal: null, exitCode: 7}]) {
     const events = fullObserverEvents().filter(event => !(event.type === 'exit-pending' && event.pid === 101));
@@ -189,7 +190,7 @@ test('an exit committed before cleanup remains a crash even when both signals ar
 
 test('a kernel exit cause stays visible if the later terminal event is missing or disagrees', () => {
   const events = fullObserverEvents().map(event => event.type === 'exit-pending' && event.pid === 101
-    ? {...event, waitStatus: 11, signal: 11} : event);
+    ? {...event, waitStatus: 11, exitCode: null, signal: 11} : event);
   for (const candidate of [events, events.filter(event => !(event.type === 'exit' && event.pid === 101))]) {
     const result = reconcileObserverEvents(candidate);
     assert.equal(result.complete, false);
@@ -202,17 +203,170 @@ test('cleanup exclusion requires matching identity, signal receipt, exit stop an
   const cases = [original.filter(event => event.type !== 'cleanup-signal'), original.filter(event => event.type !== 'exit-pending'),
     original.map(event => event.type === 'cleanup-signal' ? {...event, startTimeTicks: '1001'} : event),
     original.map(event => event.type === 'exit-pending' ? {...event, waitStatus: 11} : event),
-    original.map(event => event.type === 'exit' ? {...event, waitStatus: 0, exitCode: 0, signal: null} : event),
+    original.map(event => event.type === 'exit' ? {...event, waitStatus: 9, exitCode: null, signal: 9, expected: false} : event),
     original.map(event => event.type === 'exit' ? {...event, waitStatus: 65536} : event),
     original.map(event => event.type === 'cleanup-signal' ? {...event, timestampMs: 9} : event),
   ];
   for (const events of cases) assert.equal(reconcileObserverEvents(events).complete, false);
 });
 
-test.runIf(process.env.GITHUB_ACTIONS === 'true')('Linux observer captures Node fork/exec roles, a deliberate crash and multi-process final cleanup without browser', async () => {
+/**
+ * Deterministic scheduling model, not a native observer or Chromium run.
+ * Execute the production cleanup/exit functions with fake kill/wait/ptrace.
+ * A successful kill after group exit starts is deliberately ignored, matching
+ * the Linux race under review. No fork, native ptrace or permission fallback.
+ */
+const CLEANUP_SCHEDULE_MODEL = String.raw`
+import ast,ctypes,json,os,signal,sys
+payload=json.load(sys.stdin);mode=payload['mode'];tree=ast.parse(payload['source'])
+names={'signal_for_cleanup','close','force_cleanup_if_due','termination','exit_attribution','drain_wait_events'}
+functions=[node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name in names]
+assert len(functions)==len(names)
+queue=[];dying={};attempts=[];events=[];clock=0
+exit_stop=(6<<16)|(signal.SIGTRAP<<8)|0x7f
+def begin_exit(pid,state):
+    assert pid not in dying
+    dying[pid]=state;queue.append((pid,exit_stop))
+class KernelModel:
+    WNOHANG=os.WNOHANG
+    WIFEXITED=staticmethod(os.WIFEXITED);WIFSIGNALED=staticmethod(os.WIFSIGNALED)
+    WIFSTOPPED=staticmethod(os.WIFSTOPPED);WEXITSTATUS=staticmethod(os.WEXITSTATUS)
+    WTERMSIG=staticmethod(os.WTERMSIG);WSTOPSIG=staticmethod(os.WSTOPSIG)
+    @staticmethod
+    def kill(pid,sig):
+        ignored=pid in dying
+        attempts.append(dict(pid=pid,signal=sig,ignoredBecauseAlreadyExiting=ignored))
+        if ignored:return
+        if sig==signal.SIGTERM:
+            if mode=='unread-before-kill' and pid==101:return
+            begin_exit(pid,0)
+        else:begin_exit(pid,sig)
+    @staticmethod
+    def waitpid(pid,flags):
+        return queue.pop(0) if queue else (0,0)
+class Clock:
+    @staticmethod
+    def monotonic():return clock/1000
+def ptrace_model(request,pid,address=0,data=0):
+    if request==0x4201:ctypes.cast(data,ctypes.POINTER(ctypes.c_ulong))[0]=dying[pid]
+    elif request==7:queue.append((pid,dying[pid]))
+    else:raise AssertionError('Unexpected model ptrace request')
+def emit(kind,**data):
+    global clock
+    clock+=1;events.append(dict(type=kind,timestampMs=clock,**data))
+processes={item['pid']:dict(item) for item in payload['samples'][0]['processes']}
+scope=dict(os=KernelModel,signal=signal,ctypes=ctypes,time=Clock,ptrace=ptrace_model,emit=emit,
+    root=100,threads=set(processes),pending=set(),stopped_seen=set(),processes=processes,
+    exit_stops={},cleanup_sent={},cleanup_deadline=None,forced_cleanup=False,force_sweep_done=False,
+    progress=0,closing=False,expected_close=False,complete=True,crashes=0,unattributed=0,exec_seen=True)
+current=payload['samples'][0]
+def sample():
+    if not scope['closing']:
+        emit('sample',completedFrames=scope['progress'],rootProcess=current['rootProcess'],
+            treeComplete=True,processes=list(scope['processes'].values()))
+scope['sample']=sample
+exec(compile(ast.Module(body=functions,type_ignores=[]),'<production cleanup functions>','exec'),scope)
+for item in processes.values():
+    emit('change',pid=item['pid'],startTimeTicks=item['startTimeTicks'],change='start',reason='synthetic identity')
+emit('ready',pid=100)
+for current in payload['samples'][:-1]:
+    clock=current['timestampMs']+10;scope['progress']=current['completedFrames'];sample()
+current=payload['samples'][-1];clock=current['timestampMs']+10;scope['progress']=5400
+scope['drain_wait_events']() # The last nonblocking poll observes no exit yet.
+if mode=='unread-before-term':begin_exit(101,signal.SIGKILL)
+scope['close'](True);scope['drain_wait_events']()
+if mode=='unread-before-kill':
+    clock+=3000
+    scope['drain_wait_events']() # External SIGKILL wins immediately after this poll.
+    begin_exit(101,signal.SIGKILL)
+    scope['force_cleanup_if_due']();scope['drain_wait_events']()
+assert not queue and not scope['threads'] and not scope['processes']
+# Execute the production summary too, without executing its top-level setup/loop.
+main_loop=next(node for node in tree.body if isinstance(node,ast.Try) and any(isinstance(part,ast.While) for part in node.body))
+exec(compile(ast.Module(body=main_loop.body[-2:],type_ignores=[]),'<production observer summary>','exec'),scope)
+print(json.dumps(dict(syntheticScheduleOnly=True,nativeObserverExecuted=False,
+    externalCrashes=0 if mode=='normal' else 1,attempts=attempts,events=events)))
+`;
+
+function cleanupSchedule(mode: 'normal' | 'unread-before-term' | 'unread-before-kill'): {
+  syntheticScheduleOnly: boolean; nativeObserverExecuted: boolean; externalCrashes: number;
+  attempts: {pid: number; signal: number; ignoredBecauseAlreadyExiting: boolean}[];
+  events: Record<string, unknown>[];
+} {
+  return JSON.parse(execFileSync(OBSERVER_PYTHON, ['-c', CLEANUP_SCHEDULE_MODEL], {
+    input: JSON.stringify({mode, source: LINUX_OBSERVER_SOURCE, samples: evidence().samples}), encoding: 'utf8',
+  }));
+}
+
+test('production cleanup recognizes normal exit without altering the pre-close RAM windows', () => {
+  const model = cleanupSchedule('normal');
+  const result = reconcileObserverEvents(model.events);
+  assert.equal(model.syntheticScheduleOnly, true); assert.equal(model.nativeObserverExecuted, false);
+  assert.equal(result.complete, true, result.reasons.join('; '));
+  assert.equal(result.crashedProcesses, 0); assert.equal(result.unattributedTerminations, 0);
+  assert.equal(result.expectedFinalCloseExcluded, true);
+  assert.equal(model.attempts.length, 4);
+  assert.ok(model.attempts.every(attempt => attempt.signal === 15));
+  assert.equal(result.memory.samples.length, 541);
+  assert.deepEqual(classifyMemory(result.memory).windows, classifyMemory(evidence()).windows);
+});
+
+test('an unread external SIGKILL before graceful cleanup stays a crash and fails acceptance', () => {
+  const model = cleanupSchedule('unread-before-term');
+  const result = reconcileObserverEvents(model.events);
+  assert.equal(model.externalCrashes, 1);
+  assert.ok(model.attempts.some(attempt => attempt.pid === 101 && attempt.signal === 15 && attempt.ignoredBecauseAlreadyExiting));
+  assert.equal(result.complete, true, result.reasons.join('; '));
+  assert.equal(result.crashedProcesses, 1); assert.equal(result.unattributedTerminations, 0);
+  assert.equal(classifyMemory(result.memory).classification, 'PASS');
+  const acceptance = evaluateBenchmarkAcceptance(changeRender(acceptanceRecord(), 'static', render => ({...render,
+    crashObservation: {...render.crashObservation, complete: result.complete, crashedProcesses: result.crashedProcesses,
+      expectedFinalCloseExcluded: result.expectedFinalCloseExcluded}})));
+  assert.equal(acceptance.gates.find(gate => gate.name === 'static.crashes')?.classification, 'FAIL');
+});
+
+test('a successful cleanup SIGKILL cannot hide an unread external group exit or establish crash=0', () => {
+  const model = cleanupSchedule('unread-before-kill');
+  const result = reconcileObserverEvents(model.events);
+  assert.equal(model.externalCrashes, 1);
+  assert.ok(model.attempts.some(attempt => attempt.pid === 101 && attempt.signal === 9 && attempt.ignoredBecauseAlreadyExiting));
+  assert.equal(result.lifecycleComplete, true, result.reasons.join('; '));
+  assert.equal(result.complete, false); assert.equal(result.unattributedTerminations, 1);
+  assert.equal(result.expectedFinalCloseExcluded, false);
+  assert.equal(model.events.find(event => event.type === 'exit' && event.pid === 101)?.expected, false);
+  assert.match(result.reasons.join('; '), /cause is unproven/);
+  assert.equal(classifyMemory(result.memory).classification, 'PASS');
+  const restarts = observeActiveProcessRestarts(result.memory.samples);
+  assert.deepEqual(restarts, {complete: true, count: 0, reasons: []});
+  const acceptance = evaluateBenchmarkAcceptance(changeRender(acceptanceRecord(), 'static', render => ({...render,
+    crashObservation: {...render.crashObservation, complete: result.complete && restarts.complete,
+      crashedProcesses: result.crashedProcesses, unexpectedRestarts: restarts.count,
+      expectedFinalCloseExcluded: result.expectedFinalCloseExcluded}})));
+  assert.equal(acceptance.gates.find(gate => gate.name === 'static.crashes')?.classification, 'INCONCLUSIVE');
+  assert.equal(acceptance.classification, 'INCONCLUSIVE');
+});
+
+test('SIGTERM termination after a cleanup request also remains unattributed, including forged clean summaries', () => {
+  const events = observerEvents().map(event => event.type === 'exit-pending' || event.type === 'exit'
+    ? {...event, waitStatus: 15, exitCode: null, signal: 15, expected: false}
+    : event.type === 'summary' ? {...event, complete: false, unattributedTerminations: 1, expectedFinalCloseExcluded: false} : event);
+  const result = reconcileObserverEvents(events);
+  assert.equal(result.lifecycleComplete, true, result.reasons.join('; '));
+  assert.equal(result.complete, false); assert.equal(result.unattributedTerminations, 1);
+  for (const forged of [{complete: true, unattributedTerminations: 0, expectedFinalCloseExcluded: true},
+    {complete: true}, {crashedProcesses: 0, expectedFinalCloseExcluded: true}]) {
+    const rejected = reconcileObserverEvents(events.map(event => event.type === 'summary' ? {...event, ...forged} : event));
+    assert.equal(rejected.complete, false); assert.equal(rejected.unattributedTerminations, 1);
+    assert.equal(rejected.expectedFinalCloseExcluded, false);
+  }
+});
+
+test.runIf(process.env.GITHUB_ACTIONS === 'true')('Linux observer captures Node roles and distinguishes normal exit from forced SIGKILL cleanup without browser', async () => {
   const result = await verifyObserverCapability();
   assert.equal(result.complete, true);
   assert.equal(result.crashedProcesses, 1);
+  assert.equal(result.unattributedTerminations, 0);
+  assert.equal(result.lifecycleComplete, true);
   assert.equal(result.expectedFinalCloseExcluded, true);
   assert.ok(result.memory.processChanges.some(change => change.change === 'exec' && change.previousRole === 'other' && change.role === 'renderer'));
   assert.ok(result.memory.processChanges.some(change => change.change === 'exec' && change.previousRole === 'other' && change.role === 'gpu'));

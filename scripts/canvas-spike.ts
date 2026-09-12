@@ -81,8 +81,8 @@ except BaseException:
     emit('fatal',reason='Required lifecycle trace options unavailable; target was not executed')
     sys.exit(2)
 threads={root};pending=set();stopped_seen=set();processes={};progress=0;closing=False;expected_close=False
-exit_stops={};cleanup_sent={}
-complete=True;crashes=0;exec_seen=False;changes=[];last_sample=0
+exit_stops={};cleanup_sent={};cleanup_deadline=None;forced_cleanup=False;force_sweep_done=False
+complete=True;crashes=0;unattributed=0;exec_seen=False;changes=[];last_sample=0
 root_identity=stat(root)
 selector=selectors.DefaultSelector();selector.register(sys.stdin,selectors.EVENT_READ)
 os.set_blocking(sys.stdin.fileno(),False);input_buffer=b''
@@ -114,7 +114,7 @@ def observe_start(pid):
         sample()
         if closing:
             complete=False
-            kill_for_cleanup(pid)
+            signal_for_cleanup(pid,True)
     except (OSError,ValueError,KeyError):complete=False
 def observe_exec(pid):
     identity=processes.get(pid)
@@ -146,27 +146,50 @@ def auxiliary_sample():
     except (OSError,ValueError,KeyError):valid=False
     emit('auxiliary',completedFrames=progress,complete=valid,processes=result)
     last_auxiliary=time.monotonic()
-def kill_for_cleanup(pid):
+def signal_for_cleanup(pid,force=False):
+    global forced_cleanup
     identity=processes.get(pid)
-    # A previously observed exit is already committed; a later kill cannot
-    # turn its cause into an expected cleanup, even when both signals are 9.
-    eligible=expected_close and identity is not None and pid not in exit_stops
-    try:os.kill(pid,signal.SIGKILL)
+    sig=signal.SIGKILL if force else signal.SIGTERM
+    if force:forced_cleanup=True
+    if identity is None and not force:return
+    sent=cleanup_sent.setdefault(pid,set()) if identity is not None else set()
+    if sig in sent:return
+    try:os.kill(pid,sig)
     except ProcessLookupError:return
     if identity is not None:
-        cleanup_sent[pid]=(identity['startTimeTicks'],eligible)
-        emit('cleanup-signal',pid=pid,startTimeTicks=identity['startTimeTicks'],signal=signal.SIGKILL)
+        # This is an attempted signal, never proof of the cause of death.
+        sent.add(sig)
+        emit('cleanup-signal',pid=pid,startTimeTicks=identity['startTimeTicks'],signal=sig)
 def close(expected):
-    global closing,expected_close
+    global closing,expected_close,cleanup_deadline,force_sweep_done
     if closing:return
     sample();closing=True;expected_close=expected and progress==5400
     emit('closing',expectedFinalClose=expected_close)
-    for pid in list(threads):kill_for_cleanup(pid)
+    cleanup_deadline=time.monotonic()+2
+    # Give each process one opportunity to exit normally. Any forced
+    # cleanup consumes this attempt and cannot establish successful closure.
+    for pid in list(processes):signal_for_cleanup(pid)
+    if not expected_close:
+        force_sweep_done=True
+        for pid in list(threads):signal_for_cleanup(pid,True)
+def force_cleanup_if_due():
+    global forced_cleanup,force_sweep_done
+    if threads and closing and not force_sweep_done and time.monotonic()>=cleanup_deadline:
+        forced_cleanup=True;force_sweep_done=True
+        emit('cleanup-timeout',graceSeconds=2)
+        for pid in list(threads):signal_for_cleanup(pid,True)
 def termination(state):
     if not (os.WIFEXITED(state) or os.WIFSIGNALED(state)):raise ValueError('Nonterminal exit status')
     return dict(waitStatus=state,exitCode=os.WEXITSTATUS(state) if os.WIFEXITED(state) else None,signal=os.WTERMSIG(state) if os.WIFSIGNALED(state) else None)
+def exit_attribution(pid,state):
+    if state==0:return 'normal'
+    if closing and os.WIFSIGNALED(state) and os.WTERMSIG(state) in cleanup_sent.get(pid,set()):
+        # The same signal may already have been pending externally. In
+        # particular, kill(2) can succeed after group exit has begun.
+        return 'unattributed'
+    return 'crash'
 def drain_wait_events():
-    global complete,crashes,exec_seen
+    global complete,crashes,unattributed,exec_seen
     while True:
         try:pid,state=os.waitpid(-1,os.WNOHANG|0x40000000)
         except ChildProcessError:break
@@ -175,10 +198,14 @@ def drain_wait_events():
             threads.discard(pid);pending.discard(pid)
             identity=processes.pop(pid,None)
             if identity:
-                stopped_status=exit_stops.pop(pid,None)
-                if stopped_status!=state:complete=False
-                expected=cleanup_sent.pop(pid,None)==(identity['startTimeTicks'],True) and stopped_status==state and os.WIFSIGNALED(state) and os.WTERMSIG(state)==signal.SIGKILL
-                if (os.WIFSIGNALED(state) or os.WEXITSTATUS(state)!=0) and not expected:crashes+=1
+                stop=exit_stops.pop(pid,None)
+                matched=stop is not None and stop[0]==state
+                if not matched:complete=False
+                attribution=stop[1] if matched else exit_attribution(pid,state)
+                if attribution=='crash':crashes+=1
+                if attribution=='unattributed':unattributed+=1
+                expected=matched and stop[2] and not forced_cleanup
+                cleanup_sent.pop(pid,None)
                 emit('exit',pid=pid,startTimeTicks=identity['startTimeTicks'],expected=expected,**termination(state))
                 if not closing:
                     emit('change',change='exit',pid=pid,startTimeTicks=identity['startTimeTicks'],reason='kernel wait status')
@@ -201,7 +228,8 @@ def drain_wait_events():
             identity=processes.get(pid)
             if identity:
                 if pid in exit_stops:raise ValueError('Duplicate process exit stop')
-                exit_stops[pid]=terminal.value
+                normal_close=expected_close and closing and not forced_cleanup and terminal.value==0 and signal.SIGTERM in cleanup_sent.get(pid,set())
+                exit_stops[pid]=(terminal.value,exit_attribution(pid,terminal.value),normal_close)
                 emit('exit-pending',pid=pid,startTimeTicks=identity['startTimeTicks'],**termination(terminal.value))
             sample()
         elif sig==signal.SIGSTOP:pending.discard(pid);observe_start(pid)
@@ -229,8 +257,10 @@ try:
                 else:raise ValueError('Unknown observer command')
         if not closing and time.monotonic()-last_sample>=0.25:sample()
         if not closing and time.monotonic()-last_auxiliary>=0.25:auxiliary_sample()
+        force_cleanup_if_due()
         time.sleep(0.002)
-    emit('summary',complete=complete and exec_seen,crashedProcesses=crashes,expectedFinalCloseExcluded=expected_close)
+    lifecycle_complete=complete and exec_seen
+    emit('summary',lifecycleComplete=lifecycle_complete,complete=lifecycle_complete and not forced_cleanup and unattributed==0,crashedProcesses=crashes,unattributedTerminations=unattributed,expectedFinalCloseExcluded=expected_close and not forced_cleanup and unattributed==0)
 except BaseException as error:
     complete=False;emit('fatal',reason=type(error).__name__+': '+str(error));close(False)
     sys.exit(2)
@@ -1367,8 +1397,12 @@ export function validateRunAuthorization(value: unknown, context: {
 
 export interface ObserverResult {
   readonly memory: MemoryEvidence;
+  /** Structural event coverage is distinct from proven termination causes. */
+  readonly lifecycleComplete: boolean;
   readonly complete: boolean;
+  /** Known crashes only; this is not proof of crash=0 when complete is false. */
   readonly crashedProcesses: number;
+  readonly unattributedTerminations: number;
   readonly expectedFinalCloseExcluded: boolean;
   readonly reasons: readonly string[];
 }
@@ -1397,13 +1431,16 @@ export function reconcileObserverEvents(events: readonly unknown[]): ObserverRes
   let summary: JsonRecord | null = null;
   let sawReady = false;
   const crashed = new Set<string>();
+  const unattributed = new Set<string>();
   const started = new Set<string>();
   const exited = new Set<string>();
   const live = new Map<number, string>();
-  const cleanup = new Map<string, {eligible: boolean; timestampMs: number}>();
-  const pending = new Map<string, ProcessTermination & {expectedCleanup: boolean; timestampMs: number}>();
+  const cleanup = new Map<string, Map<number, number>>();
+  const pending = new Map<string, ProcessTermination & {unattributed: boolean; normalClose: boolean; timestampMs: number}>();
   let closing = false;
   let expectedClose = false;
+  let forcedCleanup = false;
+  let sawCleanupTimeout = false;
   let previousTimestamp = -1;
   for (const item of events) {
     if (!isRecord(item) || !finiteNonnegative(item.timestampMs) || typeof item.type !== 'string') {
@@ -1444,20 +1481,29 @@ export function reconcileObserverEvents(events: readonly unknown[]): ObserverRes
       if (!closing) processChanges.push(item);
     }
     if (item.type === 'cleanup-signal') {
-      if (!isIdentity(item) || item.signal !== 9) {reasons.push('Invalid cleanup signal receipt'); continue;}
+      if (!isIdentity(item) || (item.signal !== 15 && item.signal !== 9)) {reasons.push('Invalid cleanup signal receipt'); continue;}
       const key = identityKey(item);
-      if (!closing || live.get(item.pid) !== key || cleanup.has(key)) reasons.push('Cleanup signal lacks its close boundary or live identity');
-      // Eligibility is decided now, before any later exit status is known.
-      cleanup.set(key, {eligible: closing && expectedClose && live.get(item.pid) === key && !pending.has(key), timestampMs: item.timestampMs});
+      const sent = cleanup.get(key) ?? new Map<number, number>();
+      if (!closing || live.get(item.pid) !== key || sent.has(item.signal)) reasons.push('Cleanup signal lacks its close boundary or live identity');
+      sent.set(item.signal, item.timestampMs); cleanup.set(key, sent);
+      if (item.signal === 9) forcedCleanup = true;
+    }
+    if (item.type === 'cleanup-timeout') {
+      if (!closing || sawCleanupTimeout || item.graceSeconds !== 2) reasons.push('Invalid cleanup timeout');
+      sawCleanupTimeout = true; forcedCleanup = true;
     }
     if (item.type === 'exit-pending') {
       if (!isIdentity(item) || !isTermination(item)) {reasons.push('Invalid kernel exit-stop status'); continue;}
       const key = identityKey(item);
       if (live.get(item.pid) !== key || pending.has(key)) reasons.push('Unmatched or duplicate kernel exit stop');
-      const sent = cleanup.get(key);
-      const expectedCleanup = expectedClose && sent?.eligible === true && sent.timestampMs < item.timestampMs && item.signal === 9;
-      pending.set(key, {waitStatus: item.waitStatus, exitCode: item.exitCode, signal: item.signal, expectedCleanup, timestampMs: item.timestampMs});
-      if ((item.signal !== null || item.exitCode !== 0) && !expectedCleanup) crashed.add(key);
+      const sentAt = item.signal === null ? undefined : cleanup.get(key)?.get(item.signal);
+      const uncertain = closing && sentAt !== undefined && sentAt < item.timestampMs;
+      const requestedAt = cleanup.get(key)?.get(15);
+      const normalClose = closing && expectedClose && !forcedCleanup && item.waitStatus === 0
+        && requestedAt !== undefined && requestedAt < item.timestampMs;
+      pending.set(key, {waitStatus: item.waitStatus, exitCode: item.exitCode, signal: item.signal, unattributed: uncertain, normalClose, timestampMs: item.timestampMs});
+      if (uncertain) unattributed.add(key);
+      else if (item.signal !== null || item.exitCode !== 0) crashed.add(key);
     }
     if (item.type === 'exit') {
       if (!isIdentity(item) || !isTermination(item)) { reasons.push('Invalid process exit'); continue; }
@@ -1466,79 +1512,118 @@ export function reconcileObserverEvents(events: readonly unknown[]): ObserverRes
       const stop = pending.get(key);
       const matchesStop = stop !== undefined && stop.waitStatus === item.waitStatus && stop.timestampMs < item.timestampMs;
       if (!matchesStop) reasons.push('Terminal status lacks a matching prior kernel exit stop');
-      const expected = matchesStop && stop.expectedCleanup && item.signal === 9;
+      // Only a normal exit can belong to successful final closure. A signal
+      // receipt never proves that our cleanup caused a signaled termination.
+      const expected = matchesStop && stop.normalClose && !forcedCleanup && item.waitStatus === 0;
       if (item.expected !== expected) reasons.push('Exit exclusion disagrees with its per-process cleanup and kernel status');
       exited.add(key); live.delete(item.pid);
-      if (!expected && (item.signal !== null || item.exitCode !== 0)) crashed.add(key);
+      const sentAt = item.signal === null ? undefined : cleanup.get(key)?.get(item.signal);
+      const uncertain = matchesStop ? stop.unattributed : closing && sentAt !== undefined && sentAt < item.timestampMs;
+      if (uncertain) unattributed.add(key);
+      else if (item.signal !== null || item.exitCode !== 0) crashed.add(key);
     }
     if (item.type === 'summary') summary = item;
   }
   const observedCrashes = crashed.size;
-  if (!sawReady || !summary || summary.complete !== true || !nonnegativeInteger(summary.crashedProcesses)
+  const excluded = expectedClose && !forcedCleanup && unattributed.size === 0;
+  if (!sawReady || !summary || summary.lifecycleComplete !== true || !nonnegativeInteger(summary.crashedProcesses)
     || summary.crashedProcesses !== observedCrashes || started.size !== exited.size || live.size !== 0
-    || summary.expectedFinalCloseExcluded !== expectedClose) reasons.push('Incomplete lifecycle coverage');
-  return {memory: {samples, processChanges}, complete: reasons.length === 0,
-    crashedProcesses: observedCrashes, expectedFinalCloseExcluded: summary?.expectedFinalCloseExcluded === true && expectedClose, reasons};
+    || !nonnegativeInteger(summary.unattributedTerminations) || summary.unattributedTerminations !== unattributed.size
+    || summary.expectedFinalCloseExcluded !== excluded) reasons.push('Incomplete lifecycle coverage');
+  if (summary && summary.complete !== (summary.lifecycleComplete === true && !forcedCleanup && unattributed.size === 0)) {
+    reasons.push('Observer summary disagrees with termination attribution');
+  }
+  const lifecycleComplete = reasons.length === 0;
+  if (unattributed.size > 0) reasons.push('Cleanup termination cause is unproven; crash=0 cannot be established');
+  if (forcedCleanup) reasons.push('Forced cleanup cannot establish successful final closure');
+  return {memory: {samples, processChanges}, lifecycleComplete, complete: reasons.length === 0,
+    crashedProcesses: observedCrashes, unattributedTerminations: unattributed.size,
+    expectedFinalCloseExcluded: summary?.expectedFinalCloseExcluded === true && excluded, reasons};
 }
 
-/** Synthetic Node prerequisite: fork/exec, one crash, then owned final cleanup. */
+/** Synthetic Node controls: normal exit and forced cleanup must remain distinct. */
 export async function verifyObserverCapability(): Promise<ObserverResult> {
   const version = execFileSync(OBSERVER_PYTHON, ['--version'], {encoding: 'utf8'}).trim();
   if (version !== OBSERVER_PYTHON_VERSION) throw new Error('Unreviewed observer runtime version');
-  const output = await new Promise<string>((resolveOutput, reject) => {
-    const probe = "const {spawn,spawnSync}=require('node:child_process');spawnSync(process.execPath,['-e','process.exit(0)']);spawnSync(process.execPath,['-e','process.kill(process.pid,\"SIGTERM\")']);for(const role of ['renderer','gpu-process'])spawn(process.execPath,['-e','setInterval(()=>{},1000)','--','--type='+role]);setInterval(()=>{},1000);";
-    const child = spawn(OBSERVER_PYTHON, ['-u', '-c', LINUX_OBSERVER_SOURCE, process.execPath, '-e', probe], {stdio: ['pipe', 'pipe', 'pipe']});
-    let text = ''; let diagnostics = ''; let buffered = ''; let closeSent = false;
-    const roles = new Set<string>(); let sawNormalExit = false; let sawDeliberateCrash = false;
-    child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
-      text += chunk; buffered += chunk;
-      for (;;) {
-        const end = buffered.indexOf('\n'); if (end < 0) break;
-        const line = buffered.slice(0, end); buffered = buffered.slice(end + 1);
-        try {
-          const event: unknown = JSON.parse(line);
-          if (!isRecord(event)) throw new Error('Invalid probe event');
-          if (event.type === 'change' && event.change === 'exec' && isRole(event.role)) roles.add(event.role);
-          if (event.type === 'exit' && event.exitCode === 0) sawNormalExit = true;
-          if (event.type === 'exit' && event.signal === 15) sawDeliberateCrash = true;
-          if (!closeSent && sawNormalExit && sawDeliberateCrash && roles.has('renderer') && roles.has('gpu')) {
-            closeSent = true;
-            // This is authored probe progress, not a claim of rendered frames.
-            child.stdin.end('{"type":"progress","completedFrames":5400}\n{"type":"close","expected":true}\n');
-          }
-        } catch {diagnostics += 'Malformed observer prerequisite event';}
-      }
+  let normal: ObserverResult | null = null;
+  for (const force of [false, true]) {
+    const output = await new Promise<string>((resolveOutput, reject) => {
+      const leaf = `process.on('SIGTERM',()=>{if(${force}&&process.argv.at(-1)==='--type=gpu-process')return;process.exit(0);});setInterval(()=>{},1000);process.stderr.write('WP004A_PROBE_READY '+process.argv.at(-1)+'\\n');`;
+      const probe = "const {spawn,spawnSync}=require('node:child_process');process.on('SIGTERM',()=>process.exit(0));spawnSync(process.execPath,['-e','process.exit(0)']);spawnSync(process.execPath,['-e','process.kill(process.pid,\"SIGTERM\")']);for(const role of ['renderer','gpu-process'])spawn(process.execPath,['-e'," + JSON.stringify(leaf) + ",'--','--type='+role],{stdio:['ignore','inherit','inherit']});setInterval(()=>{},1000);process.stderr.write('WP004A_PROBE_READY root\\n');";
+      const child = spawn(OBSERVER_PYTHON, ['-u', '-c', LINUX_OBSERVER_SOURCE, process.execPath, '-e', probe], {stdio: ['pipe', 'pipe', 'pipe']});
+      let text = ''; let diagnostics = ''; let buffered = ''; let stderrBuffer = ''; let closeSent = false;
+      const roles = new Set<string>(); let sawNormalExit = false; let sawDeliberateCrash = false;
+      const ready = new Set<string>();
+      const requestClose = (): void => {
+        if (!closeSent && sawNormalExit && sawDeliberateCrash && roles.has('renderer') && roles.has('gpu')
+          && ['root', '--type=renderer', '--type=gpu-process'].every(role => ready.has(role))) {
+          closeSent = true;
+          // Authored probe progress, after every cooperative handler is ready.
+          child.stdin.end('{"type":"progress","completedFrames":5400}\n{"type":"close","expected":true}\n');
+        }
+      };
+      child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
+        text += chunk; buffered += chunk;
+        for (;;) {
+          const end = buffered.indexOf('\n'); if (end < 0) break;
+          const line = buffered.slice(0, end); buffered = buffered.slice(end + 1);
+          try {
+            const event: unknown = JSON.parse(line);
+            if (!isRecord(event)) throw new Error('Invalid probe event');
+            if (event.type === 'change' && event.change === 'exec' && isRole(event.role)) roles.add(event.role);
+            if (event.type === 'exit' && event.exitCode === 0) sawNormalExit = true;
+            if (event.type === 'exit' && event.signal === 15) sawDeliberateCrash = true;
+            requestClose();
+          } catch {diagnostics += 'Malformed observer prerequisite event';}
+        }
+      });
+      child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
+        stderrBuffer += chunk;
+        for (;;) {
+          const end = stderrBuffer.indexOf('\n'); if (end < 0) break;
+          const line = stderrBuffer.slice(0, end); stderrBuffer = stderrBuffer.slice(end + 1);
+          const marker = /^WP004A_PROBE_READY (root|--type=renderer|--type=gpu-process)$/.exec(line);
+          if (marker) ready.add(marker[1]!); else diagnostics += line;
+        }
+        requestClose();
+      });
+      child.stdin.on('error', error => {diagnostics += `Prerequisite input closed: ${errorText(error)}`;});
+      const timeout = setTimeout(() => {child.kill('SIGKILL'); reject(new Error('Observer prerequisite timeout'));}, 5000);
+      child.once('error', error => {clearTimeout(timeout); reject(error);});
+      child.once('close', code => {
+        clearTimeout(timeout);
+        diagnostics += stderrBuffer;
+        if (code !== 0 || diagnostics) {
+          const fatal = text.split('\n').flatMap(line => {
+            try {const event: unknown = JSON.parse(line); return isRecord(event) && event.type === 'fatal' && nonemptyText(event.reason) ? [event.reason] : [];}
+            catch {return [];}
+          }).join('; ');
+          reject(new Error(`Observer prerequisite unavailable (exit ${code}): ${(fatal || diagnostics).slice(0,1000)}`));
+        } else resolveOutput(text);
+      });
     });
-    child.stderr.setEncoding('utf8').on('data', (chunk: string) => {diagnostics += chunk;});
-    child.stdin.on('error', error => {diagnostics += `Prerequisite input closed: ${errorText(error)}`;});
-    const timeout = setTimeout(() => {child.kill('SIGKILL'); reject(new Error('Observer prerequisite timeout'));}, 5000);
-    child.once('error', error => {clearTimeout(timeout); reject(error);});
-    child.once('close', code => {
-      clearTimeout(timeout);
-      if (code !== 0 || diagnostics) {
-        const fatal = text.split('\n').flatMap(line => {
-          try {const event: unknown = JSON.parse(line); return isRecord(event) && event.type === 'fatal' && nonemptyText(event.reason) ? [event.reason] : [];}
-          catch {return [];}
-        }).join('; ');
-        reject(new Error(`Observer prerequisite unavailable (exit ${code}): ${(fatal || diagnostics).slice(0,1000)}`));
-      } else resolveOutput(text);
-    });
-  });
-  const events = output.trim().split('\n').map(line => JSON.parse(line) as unknown);
-  const result = reconcileObserverEvents(events);
-  const starts = result.memory.processChanges.filter(change => change.change === 'start');
-  const execRoles = result.memory.processChanges.filter(change => change.change === 'exec').map(change => change.role);
-  const closeIndex = events.findIndex(event => isRecord(event) && event.type === 'closing');
-  const samplesAfterClose = events.slice(closeIndex + 1).filter(event => isRecord(event) && event.type === 'sample').length;
-  if (!result.complete || result.crashedProcesses !== 1 || starts.length < 5 || !result.expectedFinalCloseExcluded
-    || !execRoles.includes('renderer') || !execRoles.includes('gpu') || closeIndex < 0 || samplesAfterClose !== 0) {
-    throw new Error(`Kernel lifecycle prerequisite failed; no browser may open: ${result.reasons.join('; ')}`);
+    const events = output.trim().split('\n').map(line => JSON.parse(line) as unknown);
+    const result = reconcileObserverEvents(events);
+    const starts = result.memory.processChanges.filter(change => change.change === 'start');
+    const execRoles = result.memory.processChanges.filter(change => change.change === 'exec').map(change => change.role);
+    const closeIndex = events.findIndex(event => isRecord(event) && event.type === 'closing');
+    const samplesAfterClose = events.slice(closeIndex + 1).filter(event => isRecord(event) && event.type === 'sample').length;
+    const expectedAttribution = force ? !result.complete && result.unattributedTerminations === 1 && !result.expectedFinalCloseExcluded
+      : result.complete && result.unattributedTerminations === 0 && result.expectedFinalCloseExcluded;
+    if (!result.lifecycleComplete || !expectedAttribution || result.crashedProcesses !== 1 || starts.length !== 5
+      || !execRoles.includes('renderer') || !execRoles.includes('gpu') || closeIndex < 0 || samplesAfterClose !== 0) {
+      throw new Error(`Kernel lifecycle prerequisite failed; no browser may open: ${result.reasons.join('; ')}`);
+    }
+    console.log(JSON.stringify({check: 'WP004A_OBSERVER_PREREQUISITE',syntheticNodeOnly: true,
+      scenario: force ? 'forced-sigkill' : 'normal-exit',controlPassed: true,
+      python: version,node: process.versions.node,processStarts: starts.length,execRoles,
+      deliberateCrashes: result.crashedProcesses,expectedFinalCloseExcluded: result.expectedFinalCloseExcluded,
+      unattributedTerminations: result.unattributedTerminations,samplesAfterClose,
+      lifecycleComplete: result.lifecycleComplete,attributionComplete: result.complete}));
+    if (!force) normal = result;
   }
-  console.log(JSON.stringify({check: 'WP004A_OBSERVER_PREREQUISITE',syntheticNodeOnly: true,
-    python: version,node: process.versions.node,processStarts: starts.length,execRoles,
-    deliberateCrashes: result.crashedProcesses,expectedFinalCloseExcluded: result.expectedFinalCloseExcluded,
-    samplesAfterClose,lifecycleComplete: result.complete}));
-  return result;
+  if (!normal) throw new Error('Normal-close prerequisite was not established');
+  return normal;
 }
 
 async function writeEvidence(directory: string, id: string, value: unknown): Promise<EvidenceReference> {

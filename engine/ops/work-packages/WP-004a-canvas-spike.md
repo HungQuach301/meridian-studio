@@ -6,7 +6,7 @@
 > Hồ sơ chuẩn bị một PR, dựa trên checkpoint Meridian bên dưới. Python/observer
 > đã được duyệt; chủ dự án yêu cầu hoàn tất và bỏ thời gian làm điểm chặn của
 > phần chuẩn bị PR. Quyết định hiện hành và giới hạn vật chứng ở mục 22;
-> bản sửa sau review PR #13 ở mục 23.
+> các bản sửa sau review PR #13 ở mục 23–24, mục 24 thay quy tắc miễn trừ SIGKILL.
 > Chưa có kết quả render hoặc nghiệm thu benchmark.
 
 ## 1. Mục tiêu và nguồn chuẩn
@@ -1763,3 +1763,116 @@ dừng và báo nguyên nhân, không tăng quyền, cài thêm, fallback hoặc
 4. Node tổng hợp chỉ kiểm prerequisite và bookkeeping. Chưa có Chromium thật,
    MP4, RSS/crash/hiệu năng hoặc nghiệm thu hình ảnh. Browser, một benchmark,
    license/chi phí/lưu bằng chứng cần duyệt riêng; WP-005/Layout Gallery còn đóng.
+
+## 24. Sửa P1 SIGKILL/cleanup trong cùng PR #13 — 2026-09-12
+
+### 24.1. Quyền và checkpoint
+
+Chủ dự án duyệt sửa P1 vừa review, bổ sung hồi quy, kiểm offline và CI tự động
+trong cùng PR #13. Tiếp tục giữ đúng 11 file và dependency đã duyệt; chưa merge
+hoặc chạy browser/benchmark. Không hỏi lại về thời gian, GET lại metadata hoặc
+dựng vật chứng thiếu. Các giới hạn ở mục 22 vẫn có hiệu lực.
+
+Bốn checkpoint đã xác minh trước sửa:
+
+| Mốc | SHA |
+|---|---|
+| Main | `8a6099724bf9afd7d8dabfdb18e125052c8c213e` |
+| Main tree | `72bbbf201d57e20d5cfd3aec85d2b65432e51e7e` |
+| PR head | `5d1b8813a33e4ece1433692216ea8848e865567a` |
+| PR tree | `a8e19abac3b137548aafd4a3666f9ef15cf41b79` |
+
+PR mở, chưa merge; tại checkpoint này có 11 file, +8514/−115 và hai commit.
+Lượt sửa chỉ chạm script observer, file test hiện có và hồ sơ WP này. Commit
+thường nối tiếp head trên nhánh hiện có, không force/amend hoặc tạo PR khác.
+Trước cập nhật ref phải đọc lại main/head; khác checkpoint thì dừng.
+
+### 24.2. Nguyên nhân và quy tắc thay thế
+
+Quy tắc SIGKILL ở mục 23.2 chưa chứng minh được nguồn gây thoát: sau lần
+waitpid không chặn cuối cùng, SIGKILL bên ngoài có thể bắt đầu group exit nhưng
+EXIT stop chưa được observer đọc. SIGKILL cleanup gửi sau đó vẫn có thể trả về
+thành công dù kernel bỏ tín hiệu mới. Receipt và status 9 khớp không đủ để
+miễn trừ crash. Kết quả kiểm mô hình race trong review không phải chạy kernel
+observer hoặc Chromium thật trong Work.
+
+Mục này **thay thế quy tắc miễn trừ SIGKILL tại mục 23.2**:
+
+- Sau mẫu RAM cuối và ranh giới close, gửi một SIGTERM cho mỗi tiến trình để
+  yêu cầu thoát bình thường. Chỉ exit code 0, có exit stop khớp terminal wait
+  và receipt SIGTERM trước exit stop, mới có thể thuộc đóng cuối hợp lệ.
+- Không miễn trừ bất kỳ kết thúc bằng tín hiệu hoặc exit code khác 0 nào.
+  Nguyên nhân đã đọc trước cleanup được giữ nguyên; SIGSEGV/nonzero và SIGKILL
+  không trùng tín hiệu cleanup đã gửi vẫn là crash đã biết.
+- Nếu terminal signal trùng yêu cầu cleanup trước đó mà chưa chứng minh được
+  nguồn gây thoát, ghi `unattributedTerminations`; `complete=false` và kết quả
+  crash là INCONCLUSIVE. `crashedProcesses` chỉ đếm crash đã biết, không chứng
+  minh crash=0 khi còn thiếu khả năng quy nguyên nhân.
+- Sau tối đa 2 giây chờ thoát bình thường, SIGKILL chỉ dọn tiến trình còn sống.
+  Có cleanup cưỡng bức thì không chứng nhận đóng cuối thành công, kể cả khi
+  kill trả về thành công. Không render lại, retry benchmark hoặc dùng observer
+  khác. Khi ptrace bị từ chối vẫn dừng, không tăng quyền/fallback.
+- Python và TypeScript cùng kiểm quy tắc trên. `lifecycleComplete` mô tả chuỗi
+  sự kiện đủ; `complete` còn yêu cầu xác định được nguyên nhân và không cleanup
+  cưỡng bức. Cờ summary/expected tự nhận không ghi đè các kiểm độc lập.
+
+Giữ nguyên exec-role đã sửa, ranh giới RAM trước close, 18 cửa sổ, ngưỡng RAM,
+admission, phát hiện restart và chặn navigation/page retry. Bộ kiểm benchmark
+vẫn dùng `complete`; RAM PASS và restart=0 không bù được crash INCONCLUSIVE.
+
+### 24.3. Hồi quy và kết quả offline
+
+Thêm bốn test hồi quy vào file test hiện có, đồng thời điều chỉnh fixture
+cleanup cũ sang exit code 0. Mô hình lịch biểu chạy đúng sáu hàm cleanup/exit và
+summary trích từ nguồn Python production, với kill/wait/ptrace giả. Đây là
+mô hình thuần tổng hợp dùng thư viện chuẩn; không fork hay gọi ptrace native,
+không là cách thử lại quyền bị từ chối trong Work.
+
+| Hồi quy | Kết quả trực tiếp |
+|---|---|
+| Yêu cầu thoát bình thường, mọi tiến trình exit 0 | Lifecycle đầy đủ; không crash/unknown; giữ 541 mẫu tổng hợp và 18 cửa sổ RAM |
+| SIGKILL bên ngoài chưa được đọc, có trước SIGTERM cleanup | kill cleanup trả thành công nhưng bị bỏ trong mô hình; crash vẫn bằng 1; gate crashes FAIL dù RAM PASS |
+| SIGKILL bên ngoài bắt đầu ngay trước SIGKILL cưỡng bức, EXIT stop còn trong hàng đợi | Receipt SIGKILL thành công không miễn trừ; một termination chưa rõ nguồn, gate crashes và acceptance INCONCLUSIVE dù RAM PASS/restart=0 |
+| Kết thúc bằng SIGTERM sau yêu cầu cleanup, hoặc summary giả báo sạch | Giữ termination chưa rõ nguồn; không công nhận complete hay đóng cuối hợp lệ |
+
+Kiểm trên Work với Node 24.19.0/npm 11.9.0 và Python 3.12.3 hiện có, không
+cài lại dependency; npm offline/ignore-scripts, không audit/fund. Test đặt
+GITHUB_ACTIONS=false để không thực thi native observer:
+
+| Kiểm trước commit | Kết quả |
+|---|---|
+| npm run test | 99 PASS, 1 SKIP; 91 test canvas gồm 1 native SKIP; 9 test validator PASS |
+| npm run typecheck | Exit 0 |
+| npm run validate | Exit 0; state hợp lệ; 13 schema, 0 failure |
+| Dependency | package.json/lockfile nguyên byte so với head đã review; giữ 109 vị trí gốc |
+
+### 24.4. Prerequisite CI và điểm chuyển bước
+
+Native prerequisite hiện có được mở rộng thành hai kiểm trên Node tổng hợp,
+với Python chính xác 3.12.3 và Node do workflow Node 20 cung cấp. Mỗi kiểm có
+một root và bốn child: một exit 0, một crash SIGTERM chủ đích trước cleanup,
+hai child có argv renderer/GPU. Chờ marker xác nhận handler sẵn sàng rồi mới
+gửi progress **tổng hợp** 5400 và close; không render khung nào.
+
+- `normal-exit`: root và hai child còn sống xử lý SIGTERM bằng exit 0. Phải
+  có lifecycle/attribution đầy đủ, một crash chủ đích, unknown=0, đóng cuối hợp lệ.
+- `forced-sigkill`: child GPU tổng hợp bỏ qua SIGTERM. Cleanup cưỡng bức phải
+  giữ lifecycle đầy đủ nhưng attribution không đầy đủ, một crash đã biết và
+  một termination chưa rõ nguồn; không công nhận đóng cuối hợp lệ.
+- Cả hai phải có `controlPassed=true`, đúng năm process start, exec renderer/GPU
+  và không RSS sau close trong log `WP004A_OBSERVER_PREREQUISITE`. Nếu runtime,
+  ptrace hoặc coverage không đạt thì dừng, không fallback/dispatch/rerun.
+
+CI của commit P1 chưa chạy tại lúc ghi hồ sơ này. Sau push cần đọc log thật
+cho head mới, xác nhận native test đã chạy và cả hai kiểm trên đạt; ghi SHA,
+tree, thống kê diff, số commit và link CI vào mô tả cùng PR. Không dùng kết quả
+CI của head cũ hoặc gói offline ở mục 22 để chứng nhận bản sửa P1.
+
+Sau CI xanh, bước tiếp theo là review read-only bản sửa ở bốn checkpoint mới,
+rồi mới xem xét quyền merge riêng. Hai cảnh báo moderate của Vitest/mocker
+gốc và vật chứng thiếu ở mục 22 tiếp tục được báo, không audit-fix hoặc GET lại
+metadata. Node tổng hợp chưa chứng minh hành vi thoát của Chromium: nếu browser
+thật kết thúc bằng tín hiệu chưa rõ nguồn hoặc cần SIGKILL, benchmark phải giữ
+INCONCLUSIVE. Chưa có browser/MP4/RAM/performance/visual acceptance thật; các
+điểm chặn browser, benchmark, license/chi phí/lưu bằng chứng và WP-005/Layout
+Gallery chưa được mở bởi bản sửa này.
