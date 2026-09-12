@@ -303,3 +303,102 @@ quyền đóng tài liệu tách riêng, không cấp quyền provider, episode,
 3. Xác nhận khóa bằng phép thử riêng của provider đã được duyệt trong WP tương ứng.
    `hello.yml` chỉ kiểm vòng điều khiển và quyền ghi repo, không dùng hoặc kiểm khóa provider.
 4. Thu hồi khoá cũ.
+
+## Canvas spike WP-004a — chuẩn bị, chưa nghiệm thu
+
+Mục này áp dụng riêng cho spike canvas; hướng dẫn giảm scene hoặc chạy lại stage
+ở phần vận hành chung không cấp quyền thay đổi hoặc chạy lại phép thử WP-004a.
+Nguồn kế hoạch và sổ bằng chứng:
+[WP-004a](../ops/work-packages/WP-004a-canvas-spike.md).
+Backlog vẫn todo. Chưa có kết quả render thật.
+
+Checkpoint WP-004a đã được chủ dự án chốt sau khi đóng WP-DOC-001:
+main `8a6099724bf9afd7d8dabfdb18e125052c8c213e`, tree
+`72bbbf201d57e20d5cfd3aec85d2b65432e51e7e`. Bản nháp backlog phải lấy từ
+mốc này và chỉ đổi dòng WP-004a, giữ nguyên hồ sơ WP-DOC-001 đã đóng.
+
+### Chủ dự án cần xem gì trước PR
+
+1. Agent xác minh đúng checkpoint đã duyệt; khác main/tree/state/checks/lịch sử
+   thì dừng. Chủ dự án không cần tự chạy lệnh hoặc sao chép file.
+2. Xem mục 20–22 của WP: giữ kết quả đối soát lịch sử và giới hạn vật chứng đã
+   chuyển. Python 3.12.3, thư viện chuẩn, ngoại lệ observer trong 11 file và
+   test prerequisite Node tổng hợp trong CI đã được chủ dự án duyệt.
+   Observer nằm trong `scripts/canvas-spike.ts`, không thêm helper hoặc pip/apt
+   package. Chủ dự án yêu cầu hoàn tất chuẩn bị PR và không hỏi lại về thời
+   gian; giữ sổ cũ và khoảng chưa xác định như lịch sử, không tự đặt lại sổ.
+   Không GET lại metadata; không tăng quyền/fallback nếu ptrace bị từ chối.
+3. Khi có một PR, mở Files changed: đúng phạm vi 11 file; backlog chỉ dòng WP-004a.
+   ci.yml, hello.yml, state, contracts, loader/Cockpit và mọi file ngoài phạm vi
+   phải giữ nguyên. Đối chiếu head SHA và đủ bốn mục mô tả PR.
+4. Mở Checks trên đúng head. Agent phải báo riêng test/validate/typecheck thực tế
+   trong môi trường Node 20 và phần chỉ kiểm bằng dữ liệu giả. CI/offline xanh
+   không chứng minh RAM, crash=0, chất lượng hình ảnh hoặc hiệu năng render.
+5. Chỉ merge sau phê duyệt riêng; quyền chuẩn bị PR không cấp quyền merge/benchmark.
+
+### Điều kiện trước một benchmark được duyệt riêng
+
+- Chốt source SHA/tree và hash fixture, lockfile, cấu hình encoding; chưa giải
+  quyết dependency hoặc chưa xác minh cơ chế retry/crash thì chưa đủ điều kiện.
+- Chrome Headless Shell 149.0.7790.0 đã được đối chiếu với `TESTED_VERSION`
+  trong renderer 4.0.523 được kiểm SRI. Binary chưa tải hoặc mở. Chốt checksum
+  archive và executable, phiên bản và thư viện runner trong giai đoạn được
+  duyệt riêng. Truyền đường dẫn browser rõ ràng; không
+  cho cơ chế tự tải browser chạy trong vòng đo. Browser chủ dự án không là mẫu đối chứng.
+- File Fontsource, weight/subset/license/hash đã ghi ở mục 21 của WP; phải
+  kiểm lại với source và lockfile của lượt chạy. Font phải tải đúng đủ; fallback
+  hoặc font thiếu là lỗi. Không dùng CDN hoặc thêm helper font.
+- Ghi runner/image/CPU/RAM/Node/npm/FFmpeg, chi phí được chấp nhận, điều kiện license
+  và nơi giữ đủ MP4/log. Chưa có nơi giữ bằng chứng được duyệt thì dừng trước render.
+- Phê duyệt phải ràng buộc checkpoint, cấu hình, một benchmark gồm hai render,
+  run/attempt dự kiến và chi phí. Người chạy không được coi một input boolean,
+  chuỗi mã phê duyệt hoặc validator PASS là chứng thực quyền tự nó.
+- Workflow benchmark và controller thuộc PR chuẩn bị, chỉ có workflow_dispatch.
+  Test observer trên runner phải đạt với runtime đã duyệt, sau đó mới xét phê
+  duyệt benchmark riêng. Chưa dispatch hoặc render; chưa bấm Run workflow ở
+  bước chuẩn bị PR. Việc bỏ thời gian làm điểm chặn chuẩn bị PR không thay đổi
+  ngưỡng render, giới hạn job hoặc điều kiện chi phí benchmark.
+- Controller đề xuất giữ claim và bằng chứng ở một draft Release private đã
+  tồn tại và được duyệt riêng; không tạo Release. Claim đã có thì từ chối
+  lặp benchmark, không ghi đè hoặc retry upload tự động.
+
+### Nghiệm thu bằng chứng trên trình duyệt
+
+1. Xem static.mp4 và dynamic.mp4 qua nơi lưu riêng tư được duyệt. Cả hai phải được
+   render đủ 5.400 khung, 1920×1080, 30 fps, 180 giây; bản tĩnh không tạo bằng lặp ảnh.
+   Agent phải đối soát PTS và duration của từng khung đã giải mã theo time_base,
+   cùng thời lượng toàn container. Không dùng FPS trung bình, nb_frames khai báo
+   hoặc riêng thời lượng video stream để thay phép kiểm này. Thiếu timestamp,
+   duration chưa biết hoặc schema ffprobe chưa xác minh thì INCONCLUSIVE.
+2. Đối soát nguồn và môi trường của hai bản; tĩnh trước, động sau trên cùng runner,
+   concurrency=1, cùng font/browser/encoding và browser mới cho mỗi bản.
+3. Xem thời gian: động <=25 phút và động/tĩnh <=3. Kiểm timer cùng định nghĩa,
+   không loại thời gian lỗi/retry để làm tỷ lệ tốt hơn. Toàn job còn gồm setup,
+   bundle, kiểm MP4, lưu bằng chứng và cleanup; phải có deadline riêng bao phủ
+   tất cả các bước. Khoảng hai render không chứng minh trần thời gian/chi phí job.
+   Bản ghi `jobTiming` phải đầy đủ, gắn đúng nguồn/runner/clock, từ bắt đầu job
+   tới sau cleanup cuối và bao trùm cả hai render. Thiếu, bị ngắt hoặc mâu thuẫn
+   là INCONCLUSIVE; thời gian toàn job đo được vượt trần đã chốt là FAIL dù
+   render động <=25 phút và tỷ lệ <=3. Không suy chi phí thực tế hoặc quyền chạy
+   từ PASS của phép kiểm. Controller có bản nháp timer và deadline; chưa kiểm
+   hoạt động trên runner. Report trong job luôn chờ đối soát thời điểm kết thúc
+   GitHub job, lưu bằng chứng và nghiệm thu hình ảnh sau khi job hoàn tất.
+4. Đọc chuỗi RSS toàn cây Chromium, 18 cửa sổ 300 khung và quan sát crash độc lập.
+   Không thay số đo RAM bằng đỉnh tích lũy hoặc suy crash=0 từ exit code thành công.
+   Áp dụng mục 7 của WP: dữ liệu thiếu/không tin cậy là INCONCLUSIVE trước mọi
+   phép phân loại; dữ liệu đủ và cả G, S > 2 × epsilon là FAIL. Nếu chưa FAIL mà
+   G > 0 hoặc S > 0, hoặc chuỗi tổng RSS thô/18 median không giảm ở bước nào
+   và cuối lớn hơn đầu, kết quả là INCONCLUSIVE. Chỉ PASS khi G <= 0, S <= 0,
+   không có chuỗi tăng không giảm nêu trên, range của sáu median cuối <= epsilon
+   và range của sáu p95 cuối <= 2 × epsilon. Epsilon không cấp dung sai để chuỗi
+   tăng đều được PASS; ví dụ 678, 680, …, 712 MiB là INCONCLUSIVE. Một lần sụt
+   ngắn không thay thế kiểm xu hướng. Đây là rubric bảo thủ của spike, chưa phải
+   bằng chứng RAM thực tế hoặc tiêu chuẩn được Remotion chứng nhận.
+5. Xem hình ở kích thước đủ đọc và xem toàn video: cùng đối tượng xuyên suốt,
+   đủ năm vùng, camera có lý do, ba lớp parallax, morph giữ dữ liệu, blur ngoài
+   tiêu điểm; nguồn/nhãn/số không bị cắt, chữ không vượt ngân sách quy định.
+6. Agent báo từng acceptance PASS/FAIL/INCONCLUSIVE, liên kết nguồn bằng chứng và
+   các phần chưa kiểm. Thiếu số đo hoặc khó phân loại thì INCONCLUSIVE.
+7. FAIL/INCONCLUSIVE: dừng, giữ WP-005 và Layout Gallery đóng; không tự giảm canvas,
+   bỏ blur, chia chunk, đổi cấu hình hoặc chạy lại. Chủ dự án quyết định ADR-0007
+   sau số đo thật; agent chỉ soạn ADR khi có yêu cầu rõ ràng mới.
