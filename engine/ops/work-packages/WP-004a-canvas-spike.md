@@ -2062,3 +2062,49 @@ bảo toàn ngoài phạm vi và log thật vào mô tả PR. Sau đó:
    YAML/JSON, tạo workflow hoặc bấm Run workflow.
 5. Agent theo dõi đúng run tự sinh, giữ failure/giới hạn và hướng dẫn tải asset
    để kiểm byte/hash; không tự retry/rerun khi bất kỳ bước nào dừng.
+
+### 25.7. Sửa P1 quyền đọc Actions — chưa kích hoạt
+
+Review read-only PR #14 tại main `7f2a966a7340a2d44e3486c947d0795251dac2a3`,
+main tree `e9041e269500211c6901f15da10cf3bfbb83aa81`, head
+`8fe6e158d9dde382a5b8fcf7e774b572270fc2a7`, PR tree
+`57dd1544369af04bda998a2be2cd94ec93753355` phát hiện thiếu `actions: read`.
+Job chỉ khai báo `contents: write`, nên Actions permission là none trong khi
+admission cần đọc run và toàn bộ lịch sử của repository private. Quy tắc này
+được đối chiếu với [GitHub workflow permissions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions)
+và [quyền đọc workflow runs](https://docs.github.com/en/rest/actions/workflow-runs#get-a-workflow-run).
+Kiểm 403 trước đây là mô phỏng offline, không phải run Canvas thật hoặc probe
+token. Năm CI/Hello xanh và 121 test của head cũ không chứng minh quyền này đủ.
+
+Chủ dự án duyệt sửa trong chat:
+
+> Duyệt sửa P1 thiếu actions: read trong PR #14 tại bốn checkpoint trên, đúng ba file đã nêu; bổ sung hồi quy và kiểm CI tự động. Giữ dependency, state, contracts, bằng chứng thiếu và mọi giới hạn WP-004a. Chưa merge, kích hoạt lệnh hoặc chạy benchmark.
+
+Bản sửa chỉ chạm ba file đã có trong phạm vi PR:
+
+- `.github/workflows/canvas-spike-command.yml`: thêm `actions: read` tại job
+  benchmark; giữ `contents: write` phục vụ storage đã có. Không cấp Actions
+  write, không thay trigger/nhánh/concurrency/timeout hoặc chạy workflow.
+- `scripts/canvas-spike-command.test.ts`: thêm hai hồi quy. Kiểm quyền job phải
+  đúng hai mục Contents write/Actions read, không dựa vào mặc định. Kiểm full
+  admission qua HTTP adapter với Git fixture thật và API tổng hợp: đường 200
+  đủ run/history; 403 ở run GET hoặc history GET đều dừng ngay, không retry,
+  upload/dispatch, thay source hoặc sửa request. Không mở browser.
+- File WP này: nối mục 25.7, giữ toàn bộ nội dung cũ và ranh giới bằng chứng.
+
+Bảo toàn 109 blob/mode ngoài ba file so với head đã review, cùng 104 blob/mode
+ngoài phạm vi tổng PR so với main. Không đổi package.json/lockfile, state,
+contracts, AGENTS.md, worker, observer hoặc các pin đã duyệt. Hồi quy quyền phải
+đỏ với workflow thiếu quyền của head cũ và xanh với bản sửa. Kiểm Work dùng
+Node 24.19.0/node:test trên bản TypeScript strip tạm, Python 3.12.3 cho Git
+bootstrap; không cài dependency hoặc thử lại ptrace. CI tự động trên head mới
+mới là bằng chứng Node 20/Vitest/typecheck/schema và native Node prerequisite;
+agent phải đọc log thật rồi ghi kết quả vào mô tả cùng PR.
+
+Đây là sửa cấu hình quyền API đọc, không là bằng chứng end-to-end của Canvas.
+Không tạo request/nhánh thực thi, thử token bằng workflow mới, dispatch/rerun,
+browser hoặc benchmark. Giữ failure RELEASE_COUNT_CHANGED, phần Release-list
+và dependency/browser provenance còn thiếu, hai cảnh báo moderate, attempt 1,
+trần $5/job 75 phút và quy tắc không reset ngân sách chuẩn bị. Main và draft
+chưa đổi; authorization cũ chưa chuyển sang source mới. Sau CI, bước tiếp theo
+là review read-only bản sửa tại head/tree mới trước khi xét quyền merge riêng.

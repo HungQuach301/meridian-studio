@@ -26,6 +26,7 @@ jobs:
     timeout-minutes: 75
     permissions:
       contents: write
+      actions: read
     steps:
       - name: Start whole-job clock with the approved Python
         run: |

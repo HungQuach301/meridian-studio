@@ -285,6 +285,62 @@ test('API adapter sends only fixed-host GETs, rejects redirects and never retrie
   await assert.rejects(denied('/branches/main'), /API_HTTP_403/); assert.equal(calls, 2);
 });
 
+test('command job grants only Contents write and Actions read for private run admission', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/canvas-spike-command.yml', import.meta.url), 'utf8');
+  const job = workflow.split('  benchmark:\n')[1];
+  assert.ok(job);
+  const block = /^    permissions:\n((?:      [^\n]+\n)+)    steps:/m.exec(job);
+  assert.ok(block, 'Explicit job permissions are required; unspecified permissions are none');
+  const entries = block[1]!.trim().split('\n').map(line => {
+    const match = /^([a-z][a-z-]*): (read|write|none)$/.exec(line.trim());
+    assert.ok(match, 'Only explicit literal permission entries are accepted');
+    return [match[1]!, match[2]!] as const;
+  });
+  assert.equal(entries.length, 2);
+  assert.equal(new Set(entries.map(([name]) => name)).size, entries.length);
+  assert.deepEqual(Object.fromEntries(entries), {contents: 'write', actions: 'read'});
+});
+
+test('full HTTP admission reads Actions with permission and stops on either Actions 403 without retry', async () => {
+  const f = gitFixture();
+  try {
+    const eventPath = join(f.dir, 'event.json'); const commandPath = join(f.dir, 'command.json');
+    writeFileSync(eventPath, JSON.stringify(pushEvent(f.context))); writeFileSync(commandPath, f.input);
+    const env = {...environment(f.context), GITHUB_EVENT_PATH: eventPath};
+    const runPath = '/actions/runs/' + f.context.runId;
+    const historyPath = '/actions/runs?per_page=100&page=1';
+    const prefix = ['', '/branches/main', '/releases/' + RELEASE_ID,
+      '/releases/' + RELEASE_ID + '/assets?per_page=100'];
+    for (const deniedPath of [null, runPath, historyPath]) {
+      const fixture = apiFixture(f.value, f.context);
+      const calls: string[] = [];
+      const read = githubReader('synthetic-credential', (async (url, init) => {
+        const apiRoot = 'https://api.github.com/repos/' + f.context.repository;
+        assert.ok(String(url).startsWith(apiRoot));
+        const path = String(url).slice(apiRoot.length);
+        assert.equal(init?.method, 'GET'); assert.equal(init?.redirect, 'error');
+        assert.ok(path in fixture.data, 'No write, upload, dispatch or unexpected API request');
+        calls.push(path);
+        // This is an injected response, never a real GitHub token or permission probe.
+        if (path === deniedPath) return new Response('{"message":"synthetic Actions denial"}', {status: 403});
+        return new Response(JSON.stringify(fixture.data[path]), {status: 200});
+      }) as typeof fetch);
+      if (deniedPath === null) {
+        const admitted = await loadApprovedCommand(commandPath, f.root, env, read);
+        assert.equal(admitted.receipt.commandCommitSha, f.context.commandSha);
+        assert.deepEqual(calls, [...prefix, runPath, historyPath]);
+      } else {
+        await assert.rejects(loadApprovedCommand(commandPath, f.root, env, read), /WP004A_COMMAND_API_HTTP_403/);
+        assert.deepEqual(calls, [...prefix, runPath, ...(deniedPath === historyPath ? [historyPath] : [])]);
+        assert.equal(calls.filter(path => path === deniedPath).length, 1);
+      }
+      assert.deepEqual(readFileSync(commandPath), f.input);
+      assert.equal(f.git('rev-parse', 'HEAD'), f.value.authorization.sourceCommitSha);
+      assert.equal(f.git('status', '--porcelain'), '');
+    }
+  } finally {rmSync(f.dir, {recursive: true, force: true});}
+});
+
 test('full admission combines real temporary Git with synthetic API without browser, writes or dispatch', async () => {
   const f = gitFixture();
   try {
