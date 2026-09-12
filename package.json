@@ -7,15 +7,28 @@
     "node": "20.x"
   },
   "scripts": {
-    "validate": "tsx scripts/validate-schemas.ts",
+    "validate": "node --import tsx scripts/validate-schemas.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "canvas-spike:offline": "vitest run scripts/canvas-spike.test.ts",
+    "canvas-spike:bundle": "node --import tsx scripts/canvas-spike.ts --bundle-offline",
+    "canvas-spike:benchmark": "node --import tsx scripts/canvas-spike.ts --benchmark"
   },
   "devDependencies": {
     "ajv": "^8",
     "ajv-formats": "^3",
     "typescript": "^5",
     "tsx": "^4",
-    "vitest": "^3"
+    "vitest": "^3",
+    "remotion": "4.0.523",
+    "@remotion/renderer": "4.0.523",
+    "@remotion/bundler": "4.0.523",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "@types/react": "18.2.79",
+    "@types/react-dom": "18.2.25",
+    "@types/node": "20.19.0",
+    "@fontsource/inter": "5.2.5",
+    "@fontsource/inter-tight": "5.2.5"
   }
 }

@@ -1,0 +1,108 @@
+name: Canvas spike (separate approval required)
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorization:
+        description: 'Owner-reviewed WP-004a-run-v1 JSON; one benchmark, existing draft storage, exact source/browser/lock hashes'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp004a-canvas-spike
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  benchmark:
+    if: github.repository == 'HungQuach301/meridian-studio' && github.actor == 'HungQuach301' && github.ref == 'refs/heads/main' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ fromJSON(inputs.authorization).limits.maximumJobMinutes }}
+    # Used only after a separate benchmark AND draft-Release storage approval.
+    # This workflow never creates a Release, dispatches another job or reruns.
+    permissions:
+      contents: write
+    steps:
+      - name: Record whole-job start and save supplied authorization
+        env:
+          WP004A_AUTHORIZATION: ${{ inputs.authorization }}
+        run: |
+          /usr/bin/python3 - <<'PY'
+          import os,time,json,pathlib,sys
+          assert sys.version_info[:3]==(3,12,3)
+          started=time.monotonic_ns()/1000000
+          value=json.loads(os.environ['WP004A_AUTHORIZATION'])
+          assert value['schema']=='WP-004a-run-v1'
+          assert value['repository']=='HungQuach301/meridian-studio'
+          assert value['sourceCommitSha']==os.environ['GITHUB_SHA']
+          assert value['attempt']==1 and os.environ['GITHUB_RUN_ATTEMPT']=='1'
+          limit=value['limits']['maximumJobMinutes']
+          assert type(limit) is int and 1<=limit<=75
+          p=pathlib.Path(os.environ['RUNNER_TEMP'])/'wp004a-authorization.json'
+          p.write_text(json.dumps(value))
+          with open(os.environ['GITHUB_ENV'],'a') as f:
+              f.write('WP004A_JOB_STARTED_MONOTONIC_MS='+str(started)+'\n')
+          print('WP004A_JOB_START_MONOTONIC_MS',started)
+          PY
+
+      - name: Check out the dispatched immutable source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node 20
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+
+      - name: Verify source and install the reviewed lock only
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          import {join} from 'node:path';
+          const auth=JSON.parse(readFileSync(join(process.env.RUNNER_TEMP,'wp004a-authorization.json'),'utf8'));
+          const hash=createHash('sha256').update(readFileSync('package-lock.json')).digest('hex');
+          if(hash!==auth.lockfileSha256) throw Error('Lockfile hash differs from separate approval');
+          if(!auth.approvals.browser || !auth.approvals.license || !auth.approvals.cost || !auth.approvals.storage || !auth.approvals.benchmark) throw Error('Approval evidence missing');
+          NODE
+          sha256sum pipeline/state.json > "$RUNNER_TEMP/wp004a-state-before.sha256"
+          npm ci --ignore-scripts --no-audit --fund=false
+
+      - name: Offline gates
+        run: |
+          npm run validate
+          npm run typecheck
+          npm run canvas-spike:offline
+
+      - name: One sequential pair after runtime preflight
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          REMAINING_SECONDS=$(/usr/bin/python3 - <<'PY'
+          import json,os,pathlib,time
+          auth=json.loads((pathlib.Path(os.environ['RUNNER_TEMP'])/'wp004a-authorization.json').read_text())
+          remaining=auth['limits']['maximumJobMinutes']*60-(time.monotonic_ns()/1000000-float(os.environ['WP004A_JOB_STARTED_MONOTONIC_MS']))/1000
+          assert remaining>0
+          print(int(remaining))
+          PY
+          )
+          timeout --signal=TERM --kill-after=10s "${REMAINING_SECONDS}s" npm run canvas-spike:benchmark -- "$RUNNER_TEMP/wp004a-authorization.json"
+
+      - name: Verify source and record final cleanup marker
+        if: always()
+        run: |
+          git diff --exit-code
+          git diff --cached --exit-code
+          test -z "$(git ls-files --others --exclude-standard)"
+          if test -f "$RUNNER_TEMP/wp004a-state-before.sha256"; then sha256sum --check "$RUNNER_TEMP/wp004a-state-before.sha256"; fi
+          /usr/bin/python3 -c 'import time;print("WP004A_FINAL_CLEANUP_MONOTONIC_MS",time.monotonic_ns()/1000000)'
+          echo "INCONCLUSIVE until final job reconciliation, both MP4s and owner visual acceptance; WP-005 remains closed"

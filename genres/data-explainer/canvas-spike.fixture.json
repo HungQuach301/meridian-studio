@@ -1,0 +1,150 @@
+{
+  "schemaVersion": 1,
+  "kind": "canvas-spike-synthetic-fixture",
+  "sourceCommit": "8a6099724bf9afd7d8dabfdb18e125052c8c213e",
+  "channelVisualTokensPath": "channels/us-personal-finance/visual-tokens.json",
+  "benchmark": {
+    "canvas": {"width": 6000, "height": 3400},
+    "output": {"width": 1920, "height": 1080, "fps": 30, "durationSeconds": 180},
+    "frameCount": 5400,
+    "renderOrder": ["static", "dynamic"],
+    "concurrency": 1,
+    "parallax": [0.3, 1, 1.3],
+    "blurPx": 3,
+    "regionCount": 5,
+    "morphCount": 1,
+    "staticRendersEveryFrame": true,
+    "sequentialOnSameRunner": true,
+    "freshBrowserPerRender": true,
+    "restartDuringRender": false
+  },
+  "sources": [
+    {
+      "id": "synthetic-budget-v1",
+      "publisher": "Meridian",
+      "publisherFullName": "Meridian Studio",
+      "asOfDate": "2026-09-10",
+      "kind": "synthetic",
+      "unit": "USD per month",
+      "method": "Fixed authored test values; no observations, market data, financial estimates or recommendations. The total is the sum of the four allocations.",
+      "license": "Project-authored synthetic fixture; no third-party dataset.",
+      "screenLabel": "Source: Meridian, 2026-09-10 (synthetic)"
+    }
+  ],
+  "dataset": {
+    "id": "budget-allocation",
+    "sourceId": "synthetic-budget-v1",
+    "unit": "USD per month",
+    "total": 4000,
+    "values": [
+      {"id": "housing", "label": "Housing", "value": 1800},
+      {"id": "debt", "label": "Debt", "value": 600},
+      {"id": "saving", "label": "Saving", "value": 900},
+      {"id": "other", "label": "Other", "value": 700}
+    ]
+  },
+  "regions": [
+    {
+      "id": "overview",
+      "bounds": {"x": 360, "y": 350, "width": 1680, "height": 900},
+      "intent": "Locate the four allocations on one continuous canvas.",
+      "datasetId": "budget-allocation",
+      "objectIds": ["overview-housing", "overview-debt", "overview-saving", "overview-other"],
+      "plannedFocusFrames": [0, 719]
+    },
+    {
+      "id": "comparison",
+      "bounds": {"x": 2360, "y": 350, "width": 1680, "height": 900},
+      "intent": "Compare housing and debt, then move closer to one value.",
+      "datasetId": "budget-allocation",
+      "objectIds": ["comparison-housing", "comparison-debt"],
+      "plannedFocusFrames": [1440, 2039]
+    },
+    {
+      "id": "morph",
+      "bounds": {"x": 3960, "y": 1500, "width": 1680, "height": 900},
+      "intent": "Transform a bar chart into a dot plot while preserving values and object identities.",
+      "datasetId": "budget-allocation",
+      "objectIds": ["morph-housing", "morph-debt", "morph-saving", "morph-other"],
+      "plannedFocusFrames": [2880, 3419]
+    },
+    {
+      "id": "structure",
+      "bounds": {"x": 2060, "y": 2100, "width": 1680, "height": 900},
+      "intent": "Survey how the four allocations fit inside the same total.",
+      "datasetId": "budget-allocation",
+      "objectIds": ["structure-total", "structure-housing", "structure-debt", "structure-saving", "structure-other"],
+      "plannedFocusFrames": [4140, 4319]
+    },
+    {
+      "id": "detail",
+      "bounds": {"x": 360, "y": 2000, "width": 1680, "height": 900},
+      "intent": "End on one value already present in the shared dataset.",
+      "datasetId": "budget-allocation",
+      "objectIds": ["detail-saving"],
+      "plannedFocusFrames": [4800, 5399]
+    }
+  ],
+  "camera": {
+    "coordinateSystem": "World-space viewport center; positive x points right, positive y points down.",
+    "rotationDegrees": 0,
+    "easing": [0.22, 1, 0.36, 1],
+    "staticFrame": 0,
+    "drift": {
+      "speedWorldPxPerSecond": 8,
+      "model": "Constant forward path travel plus cubic-bezier eased residual distance; no direction reversal or decorative oscillation.",
+      "arcLengthSamples": 256,
+      "scaleProgress": "Uses the same monotone normalized travel progress."
+    },
+    "keyframes": [
+      {"frame": 0, "x": 1200, "y": 850, "scale": 1, "regionId": "overview"},
+      {"frame": 720, "x": 1440, "y": 850, "scale": 1.04, "regionId": "overview"},
+      {"frame": 1440, "x": 3100, "y": 850, "scale": 1, "regionId": "comparison"},
+      {"frame": 2040, "x": 3340, "y": 880, "scale": 1.5, "regionId": "comparison"},
+      {"frame": 2880, "x": 4800, "y": 1900, "scale": 1, "regionId": "morph"},
+      {"frame": 3420, "x": 4780, "y": 2080, "scale": 1.15, "regionId": "morph"},
+      {"frame": 4140, "x": 3000, "y": 2550, "scale": 1, "regionId": "structure"},
+      {"frame": 4320, "x": 2940, "y": 2570, "scale": 1.03, "regionId": "structure"},
+      {"frame": 4800, "x": 1250, "y": 2500, "scale": 1, "regionId": "detail"},
+      {"frame": 5399, "x": 1450, "y": 2500, "scale": 1.25, "regionId": "detail"}
+    ],
+    "segments": [
+      {"fromFrame": 0, "toFrame": 720, "movement": "pan", "purpose": "Keep the overview moving while its relationships remain readable."},
+      {"fromFrame": 720, "toFrame": 1440, "movement": "pan", "purpose": "Move between comparable allocations on the same canvas."},
+      {"fromFrame": 1440, "toFrame": 2040, "movement": "dolly-in", "purpose": "Emphasize the selected comparison value."},
+      {"fromFrame": 2040, "toFrame": 2880, "movement": "dolly-out", "purpose": "Reveal the shared dataset in its next spatial region."},
+      {"fromFrame": 2880, "toFrame": 3420, "movement": "dolly-in", "purpose": "Keep the morph in focus without replacing its objects."},
+      {"fromFrame": 3420, "toFrame": 4140, "movement": "arc", "controlPoint": {"x": 4100, "y": 2750}, "purpose": "Survey the allocation structure along a curved path without canvas rotation."},
+      {"fromFrame": 4140, "toFrame": 4320, "movement": "pan", "purpose": "Maintain motion while the structure remains the focus."},
+      {"fromFrame": 4320, "toFrame": 4800, "movement": "pan", "purpose": "Return to a value that belongs to the same total."},
+      {"fromFrame": 4800, "toFrame": 5399, "movement": "dolly-in", "purpose": "Finish on the selected value."}
+    ]
+  },
+  "morph": {
+    "regionId": "morph",
+    "fromFrame": 3000,
+    "toFrame": 3300,
+    "fromChart": "bar",
+    "toChart": "dot-plot",
+    "datasetId": "budget-allocation",
+    "valueIds": ["housing", "debt", "saving", "other"],
+    "objectIds": ["morph-housing", "morph-debt", "morph-saving", "morph-other"],
+    "preserveValues": true,
+    "preserveObjectIdentity": true
+  },
+  "reviewStatus": {
+    "fixtureOnly": false,
+    "compositionImplemented": true,
+    "compositionVerified": false,
+    "geometryRendered": false,
+    "visualAcceptance": "PENDING",
+    "cameraQuality": "MATHEMATICAL_FINDING_RESOLVED_VISUAL_PENDING",
+    "sourcePlacementReview": "MATHEMATICAL_FINDING_RESOLVED_VISUAL_PENDING",
+    "offlineFindings": [
+      "The original long cubic-bezier camera tails produced 284 consecutive reference-point movements below 0.01 output pixel. The revised candidate advances at 8 world pixels per second along each intended path plus an eased residual distance, preserving forward progress. Adjusted authored keyframes and a 256-sample arc-length table resolve that mathematical finding; actual perceptual motion remains unverified. No decorative pulse was added.",
+      "Each chart now has its own persistent source label under its baseline. Source text stays 24 output pixels, remains associated with readable chart labels, and clamps horizontally into the safe area during a closeup. A 5400-frame mathematical scan finds no overlapping source boxes, no missing source during planned focus ranges and at most 12 simultaneous source/data words. Real glyph metrics, transition visibility and per-chart placement still require visual review.",
+      "Conservative paired-label bounds produce at most 12 displayed words including the source in a 5400-frame mathematical scan. Real font metrics, text visibility, label fading, clipping and chart readability are not verified."
+    ],
+    "note": "The composition has been typechecked and bundled offline with the reviewed packages and font files; it has not been rendered. Meridian is the canonical short project name in PROJECT.md and the publisher attribution uses it without changing the synthetic dataset origin. Each chart has a persistent bottom-left source label for the same synthetic dataset. Offline checks do not prove text readability, object visibility, motion quality, parallax, morph, blur or render performance. Validate those in the approved real benchmark. The static control still renders every frame."
+  }
+}
