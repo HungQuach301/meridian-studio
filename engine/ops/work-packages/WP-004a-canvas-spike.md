@@ -1876,3 +1876,189 @@ thật kết thúc bằng tín hiệu chưa rõ nguồn hoặc cần SIGKILL, be
 INCONCLUSIVE. Chưa có browser/MP4/RAM/performance/visual acceptance thật; các
 điểm chặn browser, benchmark, license/chi phí/lưu bằng chứng và WP-005/Layout
 Gallery chưa được mở bởi bản sửa này.
+
+## 25. PR nhận lệnh tự động — chỉ chuẩn bị, chưa kích hoạt
+
+### 25.1. Quyền hiện hành và checkpoint gốc
+
+Lời duyệt thật của chủ dự án trong chat, được giữ nguyên phần nội dung tác vụ:
+
+> Duyệt chuẩn bị một PR cơ chế nhận lệnh tự động cho HungQuach301/meridian-studio và cập nhật AGENTS.md theo quy tắc vừa chốt. Xác minh checkpoint trước; khác thì dừng. Cho phép CI offline tự động; chưa merge, kích hoạt lệnh thực thi, mở browser hoặc chạy benchmark. Giữ dependency, state, contracts, bằng chứng thiếu và mọi giới hạn WP-004a. Trình rõ ảnh hưởng tới checkpoint và authorization hiện có.
+
+Đây là quyền chuẩn bị PR và CI tự động, không phải lời duyệt thực thi theo source
+mới. Bản ghi này trích nội dung chat; không tự đặt một ID tin nhắn nền tảng chưa
+được cung cấp. Quyền sửa AGENTS.md là ngoại lệ cụ thể đã được chủ dự án duyệt.
+
+Checkpoint đã đọc lại độc lập trước khi sửa, ngày 2026-09-12:
+
+| Mục | Bằng chứng đã đọc |
+|---|---|
+| Repository | `HungQuach301/meridian-studio`, private=true |
+| Main | `7f2a966a7340a2d44e3486c947d0795251dac2a3` |
+| Main tree | `e9041e269500211c6901f15da10cf3bfbb83aa81`; 109 blob |
+| Draft Release | ID `387547778`, tag khai báo `wp004a-evidence-7f2a966` |
+| Target | Đúng main SHA trên; draft=true, prerelease=false, published_at=null |
+| Asset | Cả đối tượng Release và endpoint assets trả về `[]` |
+| Lịch sử | Đủ 112 run trên hai trang 100 + 12; không có Canvas hoặc run đang hoạt động |
+| Run tạo draft | `34690874856` vẫn failure; actor và triggering_actor là `HungQuach301`, event push |
+
+Failure `RELEASE_COUNT_CHANGED` của run tạo draft tiếp tục được giữ. Đọc lại
+draft độc lập không biến workflow đó thành success. Phản hồi danh sách Release
+tại thời điểm lỗi vẫn thiếu; không gọi lại danh sách để dựng phản hồi lịch sử.
+
+### 25.2. Files in scope của PR bổ sung này
+
+Phạm vi này áp dụng riêng cho PR nhận lệnh, không viết lại phạm vi 11 file đã
+merge của PR #13 hoặc các kiểm bảo toàn của PR đó:
+
+1. `AGENTS.md`: chủ dự án duyệt trong chat; agent chuẩn bị input/workflow và
+   thao tác bằng kết nối được hỗ trợ, luôn hướng dẫn bước tiếp theo chi tiết.
+2. `engine/ops/work-packages/WP-004a-canvas-spike.md`: chỉ nối thêm mục 25.
+3. `scripts/canvas-spike.ts`: dùng chung bộ kiểm dữ liệu authorization; thêm
+   entrypoint command và lưu receipt nguồn lệnh trong claim/inventory.
+4. `scripts/canvas-spike-command.ts`: admission hẹp cho đúng một slot WP-004a.
+5. `scripts/canvas-spike-command.test.ts`: hồi quy tổng hợp và Git thật trong
+   thư mục tạm; không browser, provider hoặc ghi GitHub.
+6. `.github/workflows/canvas-spike-command.yml`: nhận push trên nhánh lệnh
+   chính xác, cùng khóa concurrency với Canvas manual, job tối đa 75 phút.
+7. `.github/workflows/ci.yml`: cài theo lock, bỏ lifecycle/audit; báo giới hạn
+   của audit cũ, không chứng nhận lại dependency bằng dữ liệu mới.
+8. `.github/workflows/hello.yml`: cùng cờ cài dependency; giữ nguyên trigger,
+   kiểm offline, admission và các job ghi state/dispatch hiện có.
+
+Không thêm package hoặc sửa package.json, lockfile, tsconfig, state, 13 contracts,
+fixture/TSX/font, observer hay workflow Canvas manual. Bảo toàn 104 blob/mode gốc
+ngoài năm file gốc được sửa; ba file mới làm tổng số blob thành 112. Lockfile giữ
+nguyên byte nên cả 109 vị trí dependency gốc tiếp tục nguyên vẹn.
+
+PR chuẩn bị không có `pipeline/wp004a-command.request`, không tạo nhánh lệnh,
+không chứa authorization thật cho source mới. Chỉ CI/Hello offline tự chạy khi
+push hoặc mở PR. Cài CI dùng `npm ci --ignore-scripts --no-audit --fund=false`:
+có thể tải tarball chính xác trong lock, không giải phiên bản mới, GET lại npm
+metadata, chạy lifecycle hoặc audit fix. "Offline" ở đây mô tả bộ kiểm không gọi
+browser/provider; không mô tả toàn bộ job GitHub là không có mạng.
+
+### 25.3. Giao thức lệnh và ranh giới tin cậy
+
+Chỉ một nhánh thực thi dành riêng cho slot còn chờ:
+`wp/WP-004a-run-wp004a-7f2a966-01`. File lệnh duy nhất là
+`pipeline/wp004a-command.request`, mode 100644, tối đa 16384 byte, canonical JSON
+UTF-8 do `JSON.stringify(value, null, 2) + '\n'` sinh. Đuôi `.request` phân biệt
+lệnh điều khiển với artifact production `.json`; không sửa schema production
+hoặc bộ ánh xạ validator để bỏ qua artifact không hợp lệ.
+
+Các trường bắt buộc: `schema=WP-004a-command-v1`,
+`operation=execute-one-benchmark`, `requestId=wp004a-7f2a966-01`,
+`sourceTreeSha`, `releaseTag=wp004a-evidence-7f2a966`, `ownerApproval`,
+`costEstimate`, `authorization` theo dữ liệu `WP-004a-run-v1` đã có.
+`ownerApproval` và `costEstimate` đều giữ `id`, nội dung `text`, SHA-256 của đúng
+UTF-8 text. Cả năm tham chiếu benchmark/browser/license/cost/storage phải trỏ
+về cùng lời duyệt thật được giữ trong command. Trích dẫn phải có source đầy đủ,
+benchmark ID và Release ID; agent phải kiểm ngữ nghĩa đủ năm phạm vi trước khi
+tạo nhánh. Hash phát hiện thay đổi byte, không chứng minh tác giả hoặc biến một
+văn bản tự khai thành sự đồng ý. Nguồn tin cậy là lời duyệt trong chat và push
+thật dưới danh tính chủ repository; test ghi rõ SYNTHETIC, không là authorization.
+
+Gọi S là main source đã được duyệt sau merge, T là tree của S, C là commit lệnh.
+C phải có đúng một parent S và chỉ thêm đúng file request; mọi blob/mode còn lại
+giữ nguyên từ S. Workflow checkout C để đọc Git objects, chép request ra thư mục
+tạm rồi checkout detached S. Bộ chạy dùng source S; `GITHUB_SHA` vẫn là C. Không
+sửa GITHUB_ACTOR/REF/EVENT_NAME hoặc giả context workflow_dispatch.
+
+Admission yêu cầu GitHub Actions thật, repository private, actor và
+triggering_actor đều `HungQuach301`, push tạo nhánh mới với before=zero,
+after=C, không force/delete, ref đúng nhánh trên, run_attempt=1. Sau kiểm Git,
+chỉ GET các endpoint cố định để đọc repo/main, đúng Release/assets, run hiện tại
+và mọi trang lịch sử. Không có API tạo/sửa Release, dispatch hoặc rerun trong
+bộ nhận lệnh. Token contents:write ở job chỉ phục vụ worker upload asset vào
+draft hiện có; checkout không lưu credential.
+
+Main phải còn S/T; draft phải đúng ID/tag/target S, draft=true,
+prerelease=false, published_at=null và cả hai asset views đều rỗng. Run phải
+khớp C/ref/push/owner/attempt và đang in_progress. Lịch sử phải đầy đủ, total
+nhất quán, ID không trùng; giới hạn 1000 run là điểm dừng rõ ràng, không cắt
+trang để suy ra "chưa chạy". Chỉ được có run Canvas command hiện tại; bất kỳ
+run Canvas manual/command nào khác, kể cả failed/skipped, đều chặn. CI và Hello
+push trên source S phải đã completed/success. Run 34690874856 phải vẫn failure
+attempt 1; tên failure lấy từ log preflight đã giữ, không dựng lại Release list.
+
+Admission read-only chạy trước các prerequisite và chạy mới lần nữa ngay trước
+worker. Worker giữ claim bền vững trước browser và không ghi đè asset. Khóa
+`wp004a-canvas-spike` dùng chung với manual, cancel-in-progress=false. Sai một
+kiểm thì dừng; không fallback sang manual, không tự xóa branch/claim để thử lại,
+không cấp slot hoặc attempt mới. Tạo nhánh lệnh chính là kích hoạt thực thi;
+không được thực hiện dưới quyền chuẩn bị PR này.
+
+### 25.4. Ảnh hưởng checkpoint và authorization
+
+PR chưa merge không đổi main/tree hoặc Release hiện tại. Nếu merge sau một lời
+duyệt riêng, main SHA/tree sẽ đổi; agent phải đọc lại cả hai và CI thật. Source
+S mới phải là main đã merge, không lấy PR head, commit lệnh C hoặc tự chọn nguồn
+khác. Source cũ 7f2a966 không có cơ chế mới và bị command parser từ chối rõ ràng.
+
+Authorization cũ `wp004a-7f2a966-01`, attempt 1, $5/75 phút vẫn chỉ gắn source
+7f2a966. PR này không tiêu thụ lượt đó và không chuyển lời duyệt cũ sang S.
+Trước kích hoạt phải có lời duyệt cập nhật source S/tree T cho chính slot đó,
+đủ năm phạm vi và dự toán có căn cứ; không phát sinh benchmark thứ hai hoặc đặt
+lại ngân sách chuẩn bị. Target của draft hiện vẫn 7f2a966: muốn dùng cùng draft
+với source S thì cần quyền cập nhật target riêng và đọc lại, hoặc chủ dự án
+quyết định phương án khác cụ thể. Agent không tự retarget hoặc chọn Release khác.
+
+Lần push lệnh tương lai còn tự tạo CI (ba job tối đa 10 phút) và Hello verify
+(một job tối đa 10 phút), ngoài benchmark 75 phút: dự toán phải tính tối đa 115
+runner-phút, chi phí lưu và điều kiện billing thật. Giá $0.006/phút được giữ ở
+preflight cũ cho ra $0.69 phần compute theo giả định đó; đây không phải xác nhận
+giá/billing mới hoặc tổng tiền đã phát sinh. Không tự tái dùng dự toán $1 cũ;
+agent phải đối soát nguồn giá/billing và giới hạn storage trước execution, tổng
+không vượt $5. CI chuẩn bị PR thuộc quyền chuẩn bị đã duyệt, không reset ledger.
+
+### 25.5. Giới hạn và bằng chứng không đổi
+
+- Python chính xác 3.12.3, thư viện chuẩn và Node 20; Chrome Headless Shell
+  149.0.7790.0 Linux64. Archive SHA-256
+  `a3b011ab4c726e215cdeb623907a09cfb48f07054a7271fdda555ee2ae4f804d`;
+  executable SHA-256 `08288ffd5b22e39c652d3f4b3a37a0108a8ce167f592c7db67f10cc72e397d3a`.
+  Lock SHA-256 `15bb41977e477547db464ee867f4f71f86cd300e7b09b9523e3bbcf73788843d`.
+- Chỉ static rồi dynamic, tối đa hai render tuần tự, concurrency=1, mỗi bản
+  180 giây/5400 khung; giữ toàn bộ BENCHMARK_SPEC và cấu hình encoding gốc.
+- Quy tắc RAM/crash/SIGKILL/cleanup mục 24 nguyên vẹn: RAM trước close, 18 cửa
+  sổ, crash đã biết là FAIL; termination chưa quy được nguồn hoặc cleanup cưỡng
+  bức là INCONCLUSIVE. Static không đạt thì không mở dynamic. Không retry,
+  fallback ptrace hoặc tăng quyền. Node tổng hợp không chứng minh Chromium.
+- Native prerequisite chỉ chạy tự động trong CI trên Node tổng hợp với Python
+  3.12.3; hai control normal-exit/forced-sigkill phải được đối chiếu từ log thật.
+  Work không thử lại ptrace đã bị từ chối; hồi quy bootstrap Python chỉ đọc Git
+  và chép input vào thư mục tạm, không observer hoặc browser.
+- 144/228 bản metadata gốc còn thiếu; 84 bản giữ lại không bù toàn bộ. Cache,
+  tarball và stdout/stderr gốc chưa khôi phục được không được tái tạo thành vật
+  chứng cũ. Chữ ký/browser HTTP receipt gốc chưa có. Không GET lại npm metadata.
+- Hai cảnh báo moderate lịch sử của Vitest/mocker 3.2.7, GHSA-82fw-gwwq-j7x9,
+  chưa được sửa hoặc audit lại. Kiểm `vitest run` không mở mock dev server có
+  đường lỗi đó; điều này không chứng nhận hết lỗ hổng hoặc áp dụng cho server
+  công khai. Giữ dependency, chưa nâng/cài khác để xóa cảnh báo.
+- Chưa có dữ liệu Chromium, video, RAM/performance hoặc owner visual acceptance.
+  Benchmark vẫn cần đối soát job cuối, tải đủ video/log/evidence từ đúng draft,
+  kiểm byte/hash và chủ dự án xem hình. Giữ draft private, không publish/upload
+  browser/provider/Sites, WP-005 và Layout Gallery vẫn đóng.
+
+### 25.6. Kiểm và bước tiếp theo
+
+Bộ hồi quy mới kiểm admission, năm tham chiếu, source cũ, canonical JSON, slot,
+cost/runtime/hash, event thật, một parent/một file/mode, nguồn bẩn, remote drift,
+lịch sử đầy đủ, lần chạy trước đó, CI nguồn, API GET không retry và bootstrap
+Python trích đúng từ workflow trên Git fixture. API và lời duyệt trong test đều
+tổng hợp. Kết quả đầy đủ Node 20/Vitest/typecheck/schema và native prerequisite
+phải lấy từ CI tự động của head PR này; kết quả Work với Node 24 không thay thế.
+
+Sau push nhánh chuẩn bị, agent đọc CI/Hello rồi mở một PR, ghi SHA/tree/diff,
+bảo toàn ngoài phạm vi và log thật vào mô tả PR. Sau đó:
+
+1. Review read-only PR tại checkpoint đầy đủ; chưa merge hoặc kích hoạt.
+2. Khi có quyền merge riêng, agent xác minh rồi merge và đọc lại main/tree/CI.
+3. Agent chuẩn bị lời duyệt thực thi và dự toán cho S/T, cùng slot attempt 1;
+   trình rõ thay đổi target của đúng draft cần được duyệt riêng.
+4. Chỉ sau khi quyền và mọi admission đủ, agent tạo đúng một commit/file lệnh
+   trên nhánh dành riêng bằng kết nối GitHub hiện có. Chủ dự án không phải viết
+   YAML/JSON, tạo workflow hoặc bấm Run workflow.
+5. Agent theo dõi đúng run tự sinh, giữ failure/giới hạn và hướng dẫn tải asset
+   để kiểm byte/hash; không tự retry/rerun khi bất kỳ bước nào dừng.

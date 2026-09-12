@@ -57,7 +57,7 @@ jobs:
           git ls-files -z ':!:pipeline/state.json' | xargs -0 sha256sum > "$RUNNER_TEMP/wp002-nonstate.sha256"
       - &install
         name: Install locked dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts --no-audit --fund=false
       - &worker
         name: Prepare shared TypeScript worker in runner temporary directory
         run: |

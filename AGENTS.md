@@ -34,10 +34,20 @@ Nếu WP mâu thuẫn với 3 file trên, **DỪNG LẠI và báo cáo mâu thu�
 
 ## Ràng buộc nền tảng
 
-Chủ dự án **không có máy local** và chỉ dùng trình duyệt. Mọi lệnh bạn viết ra chỉ được chạy
-trong sandbox Codex hoặc GitHub Actions — không bao giờ yêu cầu chủ dự án chạy lệnh, cài phần
-mềm, hay mở file bằng `file://`. Thao tác của người chỉ được là bấm nút trên web GitHub,
-ChatGPT, hoặc cockpit.
+Chủ dự án **không có máy local** và duyệt công việc trong chat. Agent chịu trách nhiệm chuẩn
+bị workflow, input, commit/PR, thực hiện thao tác đã được duyệt bằng kết nối được hỗ trợ,
+theo dõi CI và đọc lại kết quả. Không yêu cầu chủ dự án tự viết YAML/JSON, tạo workflow,
+chạy lệnh, cài phần mềm, bấm Run workflow hoặc mở file bằng `file://`.
+
+Quyền đã duyệt trong chat tiếp tục có hiệu lực trong đúng phạm vi và checkpoint; không hỏi
+lại cùng một quyền. Khi thiếu khả năng kỹ thuật, nêu đúng thao tác chưa được hỗ trợ và
+chuẩn bị phương án cụ thể để review. Không giả danh actor/event, dựng lời duyệt hoặc lách
+giới hạn kết nối. Quy tắc này không tự mở quyền merge, phát hành hay thực thi chưa được duyệt.
+
+Mỗi phản hồi phải kèm bước tiếp theo chi tiết: agent sẽ làm gì, chủ dự án cần duyệt hoặc
+cung cấp gì (nếu thực sự còn thiếu), input/checkpoint nào áp dụng và điều kiện chuyển bước.
+Với WP-004a, không hỏi lại về thời gian chuẩn bị hoặc đặt lại ngân sách. Giới hạn kỹ thuật
+của job và trần tiền riêng lượt chạy vẫn được giữ theo lời duyệt của lượt đó.
 
 ## Cách làm việc
 
@@ -48,6 +58,9 @@ ChatGPT, hoặc cockpit.
 - Không sửa bất cứ file nào trong `/contracts`. Nếu thấy schema sai, viết vào phần mô tả PR và dừng.
 - Không tạo file "tiện ích", "helper", "refactor" mà WP không yêu cầu.
 - Không viết code cho tính năng tương lai. Chỉ làm đúng việc hôm nay.
+- Tách chuẩn bị PR khỏi kích hoạt thực thi. Với cơ chế WP-004a tại mục 25 của WP, tạo
+  nhánh chứa lệnh là hành động thực thi, cần lời duyệt đúng source/tree và cùng lượt chạy;
+  không được gộp vào quyền chuẩn bị PR hoặc tự chuyển authorization sang checkpoint mới.
 
 ## Quy ước code
 
@@ -73,6 +86,9 @@ Khi một stage fail: báo cáo bắt buộc nêu `rootCauseStage`, và pipeline
 không phải stage kề trước. Chi tiết: `engine/docs/11-quality-gates.md`.
 
 Tối đa 2 retry mỗi stage. Lần 3 thì dừng và chuyển sang Gate người.
+Ngoại lệ WP-004a: không retry/rerun benchmark, chỉ attempt 1 đã được duyệt. Một admission
+thất bại không cho phép tạo lệnh khác để thử lại. Ptrace bị từ chối thì dừng, không tăng quyền
+hoặc fallback. Bằng chứng thiếu phải giữ là thiếu; không GET lại metadata npm để dựng lại.
 
 ## Hai loại công việc
 
