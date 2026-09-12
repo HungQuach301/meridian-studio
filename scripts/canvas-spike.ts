@@ -1379,9 +1379,16 @@ export function validateRunAuthorization(value: unknown, context: {
     || context.eventName !== 'workflow_dispatch' || context.attempt !== '1' || context.ref !== 'refs/heads/main') {
     reasons.push('Only a first-attempt owner workflow_dispatch on this repository main is admitted');
   }
+  reasons.push(...validateAuthorizationPayload(value, context.sourceCommitSha).reasons);
+  return {valid: reasons.length === 0, reasons};
+}
+
+/** Shared data validation; this function does not authorize an execution origin. */
+export function validateAuthorizationPayload(value: unknown, sourceCommitSha: string): ValidationResult {
+  const reasons: string[] = [];
   if (!isRecord(value)) return {valid: false, reasons: [...reasons, 'Authorization JSON is missing']};
   if (value.schema !== 'WP-004a-run-v1' || value.repository !== REPOSITORY || value.attempt !== 1
-    || !sha1(value.sourceCommitSha) || value.sourceCommitSha !== context.sourceCommitSha
+    || !sha1(value.sourceCommitSha) || value.sourceCommitSha !== sourceCommitSha
     || typeof value.benchmarkId !== 'string' || !/^wp004a-[a-z0-9-]{1,48}$/.test(value.benchmarkId)) reasons.push('Authorization identity does not match this run');
   reasons.push(...validateBenchmarkConfig(value.configuration).reasons);
   if (!isLimits(value.limits) || !positiveInteger(value.limits.maximumJobMinutes) || value.limits.maximumJobMinutes > 75 || !finiteNonnegative(value.costUpperBoundUsd)
@@ -1880,13 +1887,18 @@ with zipfile.ZipFile(sys.argv[1]) as archive:
   return executable;
 }
 
-export async function runBenchmark(authorizationPath: string): Promise<void> {
-  const authorizationBytes = await fs.readFile(authorizationPath);
+export async function runBenchmark(authorizationPath: string, origin: 'manual' | 'command' = 'manual'): Promise<void> {
+  // The command route proves the real push context and immutable source. It
+  // never rewrites GITHUB_* to impersonate a manual owner dispatch.
+  const command = origin === 'command'
+    ? await (await import('./canvas-spike-command.js')).loadApprovedCommand(authorizationPath, ROOT)
+    : null;
+  const authorizationBytes = command ? Buffer.from(jsonBytes(command.authorization)) : await fs.readFile(authorizationPath);
   const input: unknown = JSON.parse(authorizationBytes.toString('utf8'));
   const context = {repository: process.env.GITHUB_REPOSITORY ?? '', actor: process.env.GITHUB_ACTOR ?? '',
     eventName: process.env.GITHUB_EVENT_NAME ?? '', attempt: process.env.GITHUB_RUN_ATTEMPT ?? '',
     sourceCommitSha: process.env.GITHUB_SHA ?? '', ref: process.env.GITHUB_REF ?? ''};
-  const admission = validateRunAuthorization(input, context);
+  const admission = command ? validateAuthorizationPayload(input, command.authorization.sourceCommitSha) : validateRunAuthorization(input, context);
   if (!admission.valid) throw new Error(admission.reasons.join('; '));
   const authorization = input as RunAuthorization;
   if (process.platform !== 'linux' || process.arch !== 'x64' || process.versions.node.split('.')[0] !== '20') throw new Error('Benchmark requires the reviewed Linux x64 Node 20 runner');
@@ -1910,14 +1922,16 @@ export async function runBenchmark(authorizationPath: string): Promise<void> {
   // Persistent claim is written before any browser opens. A failed attempt is
   // still consumed; another dispatch cannot silently reuse this authorization.
   await storage.upload('claim.json', Buffer.from(jsonBytes({sourceCommitSha: authorization.sourceCommitSha,
-    runId: process.env.GITHUB_RUN_ID, authorizationSha256: digest(authorizationBytes)})), 'application/json');
+    runId: process.env.GITHUB_RUN_ID, authorizationSha256: digest(authorizationBytes),
+    ...(command ? {command: command.receipt} : {})})), 'application/json');
   const binding: BenchmarkBinding = {repository: REPOSITORY, benchmarkId: authorization.benchmarkId,
     sourceCommitSha: authorization.sourceCommitSha, fixtureSha256: inventory.fixtureSha256,
     lockfileSha256: inventory.lockfileSha256, browserSha256: authorization.browser.sha256,
     fontManifestSha256: digest(jsonBytes(inventory.fonts)), encodingSha256: digest(jsonBytes(ENCODING)),
     environmentSha256: digest(jsonBytes(environment)), runnerJobId: `${process.env.GITHUB_RUN_ID}/${process.env.GITHUB_JOB}`,
     clockId: `linux-monotonic:${(await fs.readFile('/proc/sys/kernel/random/boot_id','utf8')).trim()}`};
-  const inventoryRef = await writeEvidence(directory, 'inventory.json', {binding, inventory, environment, encoding: ENCODING});
+  const inventoryRef = await writeEvidence(directory, 'inventory.json', {binding, inventory, environment, encoding: ENCODING,
+    ...(command ? {command: command.receipt} : {})});
   const preflight: BenchmarkPreflight = {configuration: BENCHMARK_SPEC, binding,
     requirements: Object.fromEntries(PREFLIGHT_REQUIREMENTS.map(name => [name, {resolved: true, evidence:
       name === 'license' || name === 'cost' || name === 'storage' ? authorization.approvals[name] : inventoryRef}])) as BenchmarkPreflight['requirements'],
@@ -2037,9 +2051,9 @@ export async function runBenchmark(authorizationPath: string): Promise<void> {
 
 async function commandLine(): Promise<void> {
   const [command, path, extra] = process.argv.slice(2);
-  if (extra || !path || (command !== '--bundle-offline' && command !== '--benchmark')) throw new Error('Usage: canvas-spike.ts --bundle-offline ABSOLUTE_JOB_TMP | --benchmark AUTHORIZATION_JSON');
+  if (extra || !path || (command !== '--bundle-offline' && command !== '--benchmark' && command !== '--benchmark-command')) throw new Error('Usage: canvas-spike.ts --bundle-offline ABSOLUTE_JOB_TMP | --benchmark AUTHORIZATION_JSON | --benchmark-command COMMAND_JSON');
   if (command === '--bundle-offline') {console.log(await bundleOffline(path)); return;}
-  await runBenchmark(path);
+  await runBenchmark(path, command === '--benchmark-command' ? 'command' : 'manual');
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {

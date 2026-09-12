@@ -1,0 +1,135 @@
+name: Canvas spike command (owner approval required)
+
+# Preparation/PR/main pushes cannot enter this workflow. Only a later, explicitly
+# approved creation of this exact command branch is an execution request.
+on:
+  push:
+    branches: ['wp/WP-004a-run-wp004a-7f2a966-01']
+    paths: ['pipeline/wp004a-command.request']
+
+permissions:
+  contents: read
+
+concurrency:
+  # Shared with the manual route; a claim collision never opens a browser.
+  group: wp004a-canvas-spike
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  benchmark:
+    if: github.repository == 'HungQuach301/meridian-studio' && github.actor == 'HungQuach301' && github.triggering_actor == 'HungQuach301' && github.event_name == 'push' && github.ref == 'refs/heads/wp/WP-004a-run-wp004a-7f2a966-01' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Start whole-job clock with the approved Python
+        run: |
+          /usr/bin/python3 - <<'PY'
+          import os,sys,time
+          assert sys.version_info[:3]==(3,12,3)
+          started=time.monotonic_ns()/1000000
+          with open(os.environ['GITHUB_ENV'],'a') as f:
+              f.write('WP004A_JOB_STARTED_MONOTONIC_MS='+str(started)+'\n')
+          print('WP004A_JOB_START_MONOTONIC_MS',started)
+          PY
+
+      - name: Read immutable command and parent objects
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove one added command and check out its unchanged source
+        run: |
+          /usr/bin/python3 - <<'PY'
+          import os,sys,json,pathlib,subprocess,hashlib
+          assert sys.version_info[:3]==(3,12,3)
+          def git(*args):
+              return subprocess.check_output(['git',*args],timeout=30)
+          request='pipeline/wp004a-command.request'
+          head=os.environ['GITHUB_SHA']
+          assert git('rev-parse','HEAD').decode().strip()==head
+          parents=git('show','-s','--format=%P',head).decode().split()
+          assert len(parents)==1,'WP004A_COMMAND_SINGLE_PARENT'
+          source=parents[0]
+          entry=git('ls-tree',head,'--',request).decode()
+          assert entry.startswith('100644 blob ') and entry.endswith('\t'+request+'\n')
+          data=git('show',head+':'+request)
+          assert 0<len(data)<=16384,'WP004A_COMMAND_SIZE'
+          blob=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+          expected=':000000 100644 '+'0'*40+' '+blob+' A\t'+request+'\n'
+          assert git('diff-tree','--no-commit-id','--raw','--no-abbrev','--no-renames','-r',source,head,'--').decode()==expected
+          value=json.loads(data)
+          assert value['schema']=='WP-004a-command-v1'
+          assert value['operation']=='execute-one-benchmark'
+          assert value['requestId']=='wp004a-7f2a966-01'
+          assert value['authorization']['sourceCommitSha']==source
+          assert source!='7f2a966a7340a2d44e3486c947d0795251dac2a3','New source approval required'
+          assert git('rev-parse',source+'^{tree}').decode().strip()==value['sourceTreeSha']
+          assert value['authorization']['attempt']==1 and os.environ['GITHUB_RUN_ATTEMPT']=='1'
+          assert type(value['authorization']['limits']['maximumJobMinutes']) is int
+          assert value['authorization']['limits']['maximumJobMinutes']==75
+          assert git('status','--porcelain','--untracked-files=all')==b''
+          target=pathlib.Path(os.environ['RUNNER_TEMP'])/'wp004a-command.json'
+          with target.open('xb') as f:
+              f.write(data)
+          subprocess.check_call(['git','checkout','--detach',source],timeout=30)
+          assert git('rev-parse','HEAD').decode().strip()==source
+          assert hashlib.sha256(pathlib.Path('package-lock.json').read_bytes()).hexdigest()=='15bb41977e477547db464ee867f4f71f86cd300e7b09b9523e3bbcf73788843d'
+          with open(os.environ['GITHUB_ENV'],'a') as f:
+              f.write('WP004A_COMMAND_SOURCE_SHA='+source+'\n')
+          print('COMMAND_COMMIT',head,'SOURCE_COMMIT',source,'COMMAND_BLOB',blob)
+          PY
+          sha256sum pipeline/state.json > "$RUNNER_TEMP/wp004a-state-before.sha256"
+
+      - name: Set up Node 20
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+
+      - name: Install the unchanged lock without scripts or audit
+        run: |
+          node -e "if (process.versions.node.split('.')[0] !== '20') process.exit(1)"
+          npm ci --ignore-scripts --no-audit --fund=false
+
+      - name: Read-only command admission before prerequisites
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node --import tsx scripts/canvas-spike-command.ts --admit "$RUNNER_TEMP/wp004a-command.json"
+
+      - name: Offline gates including synthetic Node prerequisite
+        run: |
+          npm run validate
+          npm run typecheck
+          npm run test
+
+      - name: Execute the one approved pair after a fresh admission
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          REMAINING_SECONDS=$(/usr/bin/python3 - <<'PY'
+          import os,time
+          remaining=75*60-(time.monotonic_ns()/1000000-float(os.environ['WP004A_JOB_STARTED_MONOTONIC_MS']))/1000
+          assert remaining>0
+          print(int(remaining))
+          PY
+          )
+          timeout --signal=TERM --kill-after=10s "${REMAINING_SECONDS}s" node --import tsx scripts/canvas-spike.ts --benchmark-command "$RUNNER_TEMP/wp004a-command.json"
+
+      - name: Verify source and record final cleanup marker
+        if: always()
+        run: |
+          if test -n "${WP004A_COMMAND_SOURCE_SHA:-}"; then test "$(git rev-parse HEAD)" = "$WP004A_COMMAND_SOURCE_SHA"; fi
+          git diff --exit-code
+          git diff --cached --exit-code
+          test -z "$(git ls-files --others --exclude-standard)"
+          if test -f "$RUNNER_TEMP/wp004a-state-before.sha256"; then sha256sum --check "$RUNNER_TEMP/wp004a-state-before.sha256"; fi
+          /usr/bin/python3 -c 'import time;print("WP004A_FINAL_CLEANUP_MONOTONIC_MS",time.monotonic_ns()/1000000)'
+          echo "INCONCLUSIVE until final job reconciliation, both MP4s and owner visual acceptance; WP-005 remains closed"
