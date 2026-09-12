@@ -1,0 +1,185 @@
+name: WP-004a create one private draft Release
+
+"on":
+  push:
+    branches: ['wp/WP-004a-draft-release']
+    paths: ['.github/workflows/wp004a-draft-release.yml']
+
+permissions: {}
+
+concurrency:
+  group: wp004a-evidence-draft-7f2a966
+  cancel-in-progress: false
+
+jobs:
+  create-draft:
+    if: >-
+      github.repository == 'HungQuach301/meridian-studio' &&
+      github.ref == 'refs/heads/wp/WP-004a-draft-release' &&
+      github.actor == 'HungQuach301' &&
+      github.triggering_actor == 'HungQuach301' &&
+      github.run_number == '1' && github.run_attempt == '1'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Verify source, create one draft, and read it back
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          /usr/bin/python3 -I <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.error
+          import urllib.request
+          
+          REPO = "HungQuach301/meridian-studio"
+          MAIN = "7f2a966a7340a2d44e3486c947d0795251dac2a3"
+          TREE = "e9041e269500211c6901f15da10cf3bfbb83aa81"
+          BRANCH = "wp/WP-004a-draft-release"
+          PATH = ".github/workflows/wp004a-draft-release.yml"
+          TAG = "wp004a-evidence-7f2a966"
+          TITLE = "WP-004a benchmark evidence — 7f2a966"
+          BODY = """WP-004a — Draft lưu bằng chứng benchmark
+          
+          Repository: HungQuach301/meridian-studio
+          Source main SHA: 7f2a966a7340a2d44e3486c947d0795251dac2a3
+          Source tree SHA: e9041e269500211c6901f15da10cf3bfbb83aa81
+          
+          Bản nháp thuộc repository private, dành cho bằng chứng WP-004a sau khi có phê duyệt thực thi riêng.
+          Hiện chưa có asset; chưa publish hoặc upload browser.
+          
+          Browser đã kiểm tĩnh:
+          Chrome Headless Shell 149.0.7790.0 Linux64
+          Archive SHA-256: a3b011ab4c726e215cdeb623907a09cfb48f07054a7271fdda555ee2ae4f804d
+          Executable SHA-256: 08288ffd5b22e39c652d3f4b3a37a0108a8ce167f592c7db67f10cc72e397d3a
+          
+          Kiểm tĩnh không xác nhận runtime Chromium hoặc kết quả benchmark.
+          Giữ nguyên mọi gate và vật chứng còn thiếu.
+          Việc tạo draft này không cấp quyền thực thi browser, dispatch/rerun, render/benchmark, provider hoặc Sites.
+          """
+          
+          
+          def require(value, code):
+              if not value:
+                  raise RuntimeError(code)
+          
+          
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  raise RuntimeError("HTTP_REDIRECT_REFUSED")
+          
+          
+          def request(method, path, payload=None):
+              require(method in ("GET", "POST"), "HTTP_METHOD_REFUSED")
+              require(method != "POST" or path == "/releases", "WRITE_PATH_REFUSED")
+              require((path == "" or path.startswith("/")) and ".." not in path, "HTTP_PATH_REFUSED")
+              data = None if payload is None else json.dumps(payload).encode("utf-8")
+              req = urllib.request.Request(
+                  "https://api.github.com/repos/" + REPO + path,
+                  data=data, method=method,
+                  headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"],
+                           "Accept": "application/vnd.github+json",
+                           "Content-Type": "application/json",
+                           "X-GitHub-Api-Version": "2026-03-10",
+                           "User-Agent": "meridian-wp004a-draft-release"},
+              )
+              try:
+                  with urllib.request.build_opener(NoRedirect()).open(req, timeout=30) as response:
+                      require(response.status == (201 if method == "POST" else 200), "HTTP_STATUS")
+                      return json.load(response)
+              except urllib.error.HTTPError as error:
+                  raise RuntimeError("HTTP_" + str(error.code)) from None
+          
+          
+          def checkpoint(api):
+              repo = api("GET", "")
+              require(repo.get("full_name") == REPO and repo.get("private") is True,
+                      "REPOSITORY_PRIVATE_REQUIRED")
+              require(repo.get("default_branch") == "main", "DEFAULT_BRANCH_CHANGED")
+              branch = api("GET", "/branches/main")
+              require(branch["commit"]["sha"] == MAIN, "MAIN_CHANGED")
+              require(branch["commit"]["commit"]["tree"]["sha"] == TREE, "MAIN_TREE_CHANGED")
+          
+          
+          def files(tree):
+              require(tree.get("truncated") is False, "TREE_TRUNCATED")
+              result = {entry["path"]: (entry["type"], entry["mode"], entry["sha"])
+                        for entry in tree["tree"] if entry["type"] != "tree"}
+              require(len(result) == sum(entry["type"] != "tree" for entry in tree["tree"]),
+                      "TREE_DUPLICATE_PATH")
+              return result
+          
+          
+          def validate_release(release):
+              require(type(release.get("id")) is int and release["id"] > 0, "RELEASE_ID")
+              require(release.get("tag_name") == TAG and release.get("name") == TITLE, "RELEASE_IDENTITY")
+              require(release.get("target_commitish") == MAIN, "RELEASE_TARGET")
+              require(release.get("body") == BODY, "RELEASE_BODY")
+              require(release.get("draft") is True and release.get("prerelease") is False, "RELEASE_DRAFT")
+              require("published_at" in release and release["published_at"] is None, "RELEASE_PUBLISHED")
+              require(release.get("assets") == [], "RELEASE_ASSETS")
+          
+          
+          def run(api, env):
+              require(env.get("GITHUB_REPOSITORY") == REPO, "WRONG_REPOSITORY")
+              require(env.get("GITHUB_REF") == "refs/heads/" + BRANCH, "WRONG_BRANCH")
+              require(env.get("GITHUB_EVENT_NAME") == "push", "WRONG_EVENT")
+              require(env.get("GITHUB_RUN_ATTEMPT") == "1", "RERUN_REFUSED")
+              require(env.get("GITHUB_RUN_NUMBER") == "1", "NEW_RUN_REFUSED")
+              require(env.get("GITHUB_ACTOR") == "HungQuach301" and
+                      env.get("GITHUB_TRIGGERING_ACTOR") == "HungQuach301", "WRONG_ACTOR")
+              source = env.get("GITHUB_SHA", "")
+              require(len(source) == 40 and all(c in "0123456789abcdef" for c in source), "SOURCE_SHA")
+              checkpoint(api)
+              commit = api("GET", "/git/commits/" + source)
+              require([p["sha"] for p in commit["parents"]] == [MAIN], "ONE_COMMIT_REQUIRED")
+              require(api("GET", "/git/ref/heads/" + BRANCH)["object"]["sha"] == source, "BRANCH_MOVED")
+              baseline = files(api("GET", "/git/trees/" + TREE + "?recursive=1"))
+              candidate = files(api("GET", "/git/trees/" + commit["tree"]["sha"] + "?recursive=1"))
+              require(len(baseline) == 109 and PATH not in baseline, "BASELINE_SCOPE")
+              addition = candidate.pop(PATH, None)
+              require(addition is not None and addition[:2] == ("blob", "100644"), "WORKFLOW_ADDITION")
+              require(candidate == baseline, "OUTSIDE_SCOPE_CHANGED")
+              require(api("GET", "/releases?per_page=100") == [], "RELEASE_ALREADY_EXISTS")
+              require(api("GET", "/git/matching-refs/tags/" + TAG) == [], "TAG_ALREADY_EXISTS")
+              checkpoint(api)
+              payload = {"tag_name": TAG, "target_commitish": MAIN, "name": TITLE, "body": BODY,
+                         "draft": True, "prerelease": False, "generate_release_notes": False,
+                         "make_latest": "false"}
+              print("CREATE_REQUEST_ONCE; no retry after an ambiguous response", flush=True)
+              release = api("POST", "/releases", payload)
+              # Record the returned ID before subsequent reads can fail.
+              print("CREATE_RESPONSE " + json.dumps({"id": release.get("id"),
+                    "draft": release.get("draft"), "target": release.get("target_commitish")}), flush=True)
+              validate_release(release)
+              release_id = release["id"]
+              reread = api("GET", "/releases/" + str(release_id))
+              validate_release(reread)
+              require(reread["id"] == release_id, "RELEASE_ID_CHANGED")
+              require(api("GET", "/releases/" + str(release_id) + "/assets?per_page=100") == [], "ASSETS_READBACK")
+              listing = api("GET", "/releases?per_page=100")
+              require(len(listing) == 1 and listing[0]["id"] == release_id, "RELEASE_COUNT_CHANGED")
+              checkpoint(api)
+              receipt = {"releaseId": release_id, "tag": TAG, "title": TITLE, "targetCommitish": MAIN,
+                         "main": MAIN, "tree": TREE, "draft": True, "publishedAt": None, "assets": [],
+                         "workflowSource": source, "runId": env.get("GITHUB_RUN_ID"), "runAttempt": 1}
+              print("VERIFIED_DRAFT " + json.dumps(receipt, ensure_ascii=False), flush=True)
+              return receipt
+          
+          
+          if __name__ == "__main__":
+              try:
+                  require(sys.version_info[:3] == (3, 12, 3), "PYTHON_VERSION_REQUIRED_3_12_3")
+                  receipt = run(request, os.environ)
+                  with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as output:
+                      output.write("Verified private draft; no assets uploaded.\n\n```json\n")
+                      output.write(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n```\n")
+              except Exception as error:
+                  print("STOP " + (str(error) if type(error) is RuntimeError else type(error).__name__), flush=True)
+                  print("No retry, cleanup write, publish, browser operation or benchmark is authorized.", flush=True)
+                  sys.exit(1)
+          PY
