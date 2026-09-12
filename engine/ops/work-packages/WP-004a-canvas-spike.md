@@ -5,7 +5,8 @@
 
 > Hồ sơ chuẩn bị một PR, dựa trên checkpoint Meridian bên dưới. Python/observer
 > đã được duyệt; chủ dự án yêu cầu hoàn tất và bỏ thời gian làm điểm chặn của
-> phần chuẩn bị PR. Quyết định hiện hành và giới hạn vật chứng ở mục 22.
+> phần chuẩn bị PR. Quyết định hiện hành và giới hạn vật chứng ở mục 22;
+> bản sửa sau review PR #13 ở mục 23.
 > Chưa có kết quả render hoặc nghiệm thu benchmark.
 
 ## 1. Mục tiêu và nguồn chuẩn
@@ -1688,3 +1689,77 @@ phải dẫn kết quả CI tự động đúng head sau push. Không ghi kết 
 Nếu prerequisite bị từ chối ptrace, thiếu/sai runtime hoặc thiếu lifecycle thì
 dừng trước benchmark, báo nguyên nhân; không tăng quyền hoặc fallback.
 Bản chuẩn bị này chưa merge hoặc chạy browser/render; WP-004a vẫn chưa nghiệm thu.
+
+## 23. Sửa ba lỗi observer/RAM/crash trong PR #13 — 2026-09-12
+
+### 23.1. Quyền và checkpoint trước sửa
+
+Chủ dự án duyệt sửa ba lỗi đã review, bổ sung test hồi quy, cập nhật cùng PR #13
+và kiểm CI tự động; giữ phạm vi 11 file cùng dependency đã duyệt. Chưa merge
+hoặc chạy browser/benchmark. Các giới hạn và phần vật chứng thiếu ở mục 22
+tiếp tục được giữ nguyên, không GET lại metadata.
+
+Đã xác minh lại main `8a6099724bf9afd7d8dabfdb18e125052c8c213e`, main tree
+`72bbbf201d57e20d5cfd3aec85d2b65432e51e7e`, head PR
+`e6d7708802a82435f0295fe7153b024a8fa6bffb`, PR tree
+`bafc39ad41f75936e047d0fbb68c5ced1cc52420`. PR mở, chưa merge, đúng 11 file,
++8139/−115 và một commit tại mốc đó. Sáu run gắn head đều success, attempt 1.
+Cả 109 file làm việc khớp blob/mode của tree đã review trước khi sửa.
+
+Lượt sửa chỉ chạm `scripts/canvas-spike.ts`, `scripts/canvas-spike.test.ts` và
+hồ sơ WP này. Thêm commit thường trên nhánh hiện có; không sửa lịch sử hoặc
+mở PR khác. Head/tree, số commit và thống kê diff sau sửa phải được báo mới
+trong PR; không sử dụng thống kê của checkpoint cũ để mô tả bản sửa.
+
+### 23.2. Ba sửa đổi và kiểm hồi quy
+
+| Lỗi | Cách sửa | Kiểm hồi quy |
+|---|---|---|
+| Cờ đóng cuối che crash | Đọc hết sự kiện wait đang có trước close. Giữ wait status tại PTRACE_EVENT_EXIT, biên nhận SIGKILL và identity riêng từng tiến trình. Chỉ miễn trừ khi kill đã gửi trước exit stop, status khớp terminal wait và signal là SIGKILL; exit đã được ghi nhận trước kill không đổi nguyên nhân. Reconciler tự kiểm lại, không tin cờ expected. | SIGSEGV/nonzero không được miễn trừ; exit có trước cleanup vẫn là crash kể cả signal 9; thiếu/mâu thuẫn identity, receipt, exit stop hoặc terminal status không được coi đầy đủ. Nguyên nhân crash đã biết vẫn hiển thị khi thiếu terminal event. |
+| Vai trò thay đổi sau exec làm RAM INCONCLUSIVE | Child giữ vai trò tạm other trước exec. Ghi change=exec với PID/starttime, vai trò trước/sau; nhận diện cờ theo từng argv. RAM chỉ chấp nhận chuyển vai trò có chuỗi exec phù hợp, giữ mẫu ban đầu và toàn bộ cửa sổ. Root exec hoặc đổi ancestry/identity vẫn bị bác bỏ. | Chuỗi tổng hợp đầy đủ 18 cửa sổ giữ nguyên median/P95 khi thêm chuyển other→renderer có bằng chứng; thiếu/sai exec, identity, vai trò trước, ancestry hoặc root restart đều INCONCLUSIVE. |
+| Mẫu cleanup làm hỏng RAM | Mẫu cuối ngay trước close chốt ranh giới đo RAM. Observer tiếp tục giữ exit stop, signal receipt và terminal wait, nhưng không phát RSS sau close. Reconciler không đưa mẫu sau close vào RAM và báo vi phạm ranh giới nếu có. | Cleanup nhiều tiến trình, child thoát trước root, giữ đủ 541 mẫu tổng hợp từ progress 0 tới 5400 và 18 cửa sổ. Mẫu RSS chèn sau close không làm biến đổi RAM và không được coi coverage hợp lệ. |
+
+Việc chấp nhận bằng chứng exec không cấp quyền restart: guard còn nhận diện
+exec cùng vai trò browser/renderer/GPU trong phần đang render dù PID/starttime
+không đổi. Có test phân biệt exec lúc chuẩn bị, đang render và sau progress 5400.
+Các ngưỡng RAM/hiệu năng, admission, navigation/page guard và điều kiện một
+benchmark hai render giữ nguyên; không tự chạy lại khi FAIL/INCONCLUSIVE.
+
+### 23.3. Kiểm offline và prerequisite CI
+
+Kiểm trên Work với Node 24.19.0/npm 11.9.0, không cài lại dependency. Các lệnh
+npm dùng offline/ignore-scripts, không audit/fund. Test đặt GITHUB_ACTIONS=false
+để không thực thi ptrace trong Work:
+
+| Kiểm trực tiếp trước commit | Kết quả |
+|---|---|
+| npm run test | 95 PASS, 1 SKIP; 87 test canvas gồm 1 native SKIP, 9 test validator PASS |
+| npm run typecheck | Exit 0 |
+| npm run validate | Exit 0; 13 schema, state hợp lệ, 0 failure |
+| AST observer Python | PASS; chỉ os, sys, json, time, signal, ctypes, selectors; không chạy kernel observer |
+| Dependency và state | package.json/lockfile nguyên byte; 109 vị trí dependency gốc nguyên đối tượng; state giữ 88 byte/SHA-256 đã chốt |
+
+Đã thêm 9 test tổng hợp, đồng thời mở rộng prerequisite native hiện có. Trong
+CI đã duyệt, prerequisite kiểm Python chính xác 3.12.3 và dùng một root Node
+cùng bốn child Node: một exit 0, một SIGTERM chủ đích, hai child còn sống với
+argv thử vai trò renderer/GPU. Sau khi đã thấy các exit và exec cần thiết,
+test gửi progress tổng hợp 5400 và close có chủ đích, kiểm cleanup nhiều tiến
+trình và không có RSS sau close. Không render bất kỳ khung nào trong probe.
+Log kiểm có marker WP004A_OBSERVER_PREREQUISITE, runtime thực tế, số start/exec,
+crash chủ đích, trạng thái cleanup và số mẫu sau close.
+
+CI của commit sửa chưa chạy tại lúc ghi hồ sơ này. Sau push phải đọc log thật
+trên head mới, xác nhận native test đã chạy, không SKIP và tất cả checks đạt;
+không chuyển kết quả offline thành CI. Nếu ptrace bị từ chối hoặc runtime sai,
+dừng và báo nguyên nhân, không tăng quyền, cài thêm, fallback hoặc rerun.
+
+### 23.4. Bước tiếp theo và phần chưa nghiệm thu
+
+1. Đối soát 11 file của toàn PR, 98 blob/mode ngoài phạm vi và dependency gốc;
+   đọc lại checkpoint trước cập nhật nhánh, khác thì dừng.
+2. Cập nhật cùng PR #13 bằng commit thường; đọc CI tự động và cung cấp head/tree,
+   diff/số commit cùng link log thật. Hai moderate của Vitest gốc vẫn cần báo rõ.
+3. Chủ dự án review bản sửa trên đúng checkpoint mới rồi mới xét quyền merge.
+4. Node tổng hợp chỉ kiểm prerequisite và bookkeeping. Chưa có Chromium thật,
+   MP4, RSS/crash/hiệu năng hoặc nghiệm thu hình ảnh. Browser, một benchmark,
+   license/chi phí/lưu bằng chứng cần duyệt riêng; WP-005/Layout Gallery còn đóng.

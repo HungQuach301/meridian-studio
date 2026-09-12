@@ -81,13 +81,15 @@ except BaseException:
     emit('fatal',reason='Required lifecycle trace options unavailable; target was not executed')
     sys.exit(2)
 threads={root};pending=set();stopped_seen=set();processes={};progress=0;closing=False;expected_close=False
+exit_stops={};cleanup_sent={}
 complete=True;crashes=0;exec_seen=False;changes=[];last_sample=0
 root_identity=stat(root)
 selector=selectors.DefaultSelector();selector.register(sys.stdin,selectors.EVENT_READ)
 os.set_blocking(sys.stdin.fileno(),False);input_buffer=b''
 def sample():
     global complete,last_sample
-    if not exec_seen or root not in processes or pending: return
+    # The final pre-close sample ends RAM measurement. Keep tracing exits below.
+    if closing or not exec_seen or root not in processes or pending: return
     result=[];valid=True
     for pid,identity in list(processes.items()):
         try:
@@ -96,9 +98,8 @@ def sample():
             if int(s['Tgid'])!=pid: valid=False;continue
             rss=s.get('VmRSS','').split()
             if len(rss)!=2 or rss[1]!='kB': valid=False;continue
-            cmd=open('/proc/'+str(pid)+'/cmdline','rb').read().replace(b'\0',b' ').decode('utf-8','replace')
-            role='browser' if pid==root else 'renderer' if '--type=renderer' in cmd else 'gpu' if '--type=gpu-process' in cmd else 'utility' if '--type=utility' in cmd else 'other'
-            result.append(dict(before,rssBytes=int(rss[0])*1024,role=role))
+            # Roles change only when a retained exec event establishes them.
+            result.append(dict(before,rssBytes=int(rss[0])*1024,role=identity['role']))
         except (OSError,ValueError,KeyError): valid=False
     emit('sample',completedFrames=progress,rootProcess=dict(pid=root,startTimeTicks=root_identity['startTimeTicks']),treeComplete=valid,processes=result)
     last_sample=time.monotonic()
@@ -108,10 +109,22 @@ def observe_start(pid):
         s=status(pid)
         if int(s['Tgid'])!=pid:return
         if pid in processes:return
-        identity=stat(pid);processes[pid]=identity
+        identity=dict(stat(pid),role='browser' if pid==root else 'other');processes[pid]=identity
         emit('change',change='start',pid=pid,startTimeTicks=identity['startTimeTicks'],reason='kernel lifecycle event before child resume')
         sample()
+        if closing:
+            complete=False
+            kill_for_cleanup(pid)
     except (OSError,ValueError,KeyError):complete=False
+def observe_exec(pid):
+    identity=processes.get(pid)
+    if identity is None or stat(pid)['startTimeTicks']!=identity['startTimeTicks']:
+        raise ValueError('Exec lacks its original process identity')
+    argv=open('/proc/'+str(pid)+'/cmdline','rb').read().split(b'\0')
+    role='browser' if pid==root else 'renderer' if b'--type=renderer' in argv else 'gpu' if b'--type=gpu-process' in argv else 'utility' if b'--type=utility' in argv else 'other'
+    previous=identity['role'];identity['role']=role
+    emit('change',change='exec',pid=pid,startTimeTicks=identity['startTimeTicks'],previousRole=previous,role=role,reason='kernel exec event before new program resume')
+    sample()
 def auxiliary_sample():
     global last_auxiliary
     result=[];valid=True
@@ -133,17 +146,72 @@ def auxiliary_sample():
     except (OSError,ValueError,KeyError):valid=False
     emit('auxiliary',completedFrames=progress,complete=valid,processes=result)
     last_auxiliary=time.monotonic()
+def kill_for_cleanup(pid):
+    identity=processes.get(pid)
+    # A previously observed exit is already committed; a later kill cannot
+    # turn its cause into an expected cleanup, even when both signals are 9.
+    eligible=expected_close and identity is not None and pid not in exit_stops
+    try:os.kill(pid,signal.SIGKILL)
+    except ProcessLookupError:return
+    if identity is not None:
+        cleanup_sent[pid]=(identity['startTimeTicks'],eligible)
+        emit('cleanup-signal',pid=pid,startTimeTicks=identity['startTimeTicks'],signal=signal.SIGKILL)
 def close(expected):
     global closing,expected_close
     if closing:return
     sample();closing=True;expected_close=expected and progress==5400
     emit('closing',expectedFinalClose=expected_close)
-    for pid in list(threads):
-        try:os.kill(pid,signal.SIGKILL)
-        except ProcessLookupError:pass
+    for pid in list(threads):kill_for_cleanup(pid)
+def termination(state):
+    if not (os.WIFEXITED(state) or os.WIFSIGNALED(state)):raise ValueError('Nonterminal exit status')
+    return dict(waitStatus=state,exitCode=os.WEXITSTATUS(state) if os.WIFEXITED(state) else None,signal=os.WTERMSIG(state) if os.WIFSIGNALED(state) else None)
+def drain_wait_events():
+    global complete,crashes,exec_seen
+    while True:
+        try:pid,state=os.waitpid(-1,os.WNOHANG|0x40000000)
+        except ChildProcessError:break
+        if pid==0:break
+        if os.WIFEXITED(state) or os.WIFSIGNALED(state):
+            threads.discard(pid);pending.discard(pid)
+            identity=processes.pop(pid,None)
+            if identity:
+                stopped_status=exit_stops.pop(pid,None)
+                if stopped_status!=state:complete=False
+                expected=cleanup_sent.pop(pid,None)==(identity['startTimeTicks'],True) and stopped_status==state and os.WIFSIGNALED(state) and os.WTERMSIG(state)==signal.SIGKILL
+                if (os.WIFSIGNALED(state) or os.WEXITSTATUS(state)!=0) and not expected:crashes+=1
+                emit('exit',pid=pid,startTimeTicks=identity['startTimeTicks'],expected=expected,**termination(state))
+                if not closing:
+                    emit('change',change='exit',pid=pid,startTimeTicks=identity['startTimeTicks'],reason='kernel wait status')
+                    sample()
+            if pid==root and not closing:close(False)
+            continue
+        if not os.WIFSTOPPED(state):complete=False;continue
+        threads.add(pid);event=state>>16;sig=os.WSTOPSIG(state)
+        if sig==signal.SIGSTOP and pid in stopped_seen and not event:raise ValueError('Unexpected repeated process stop')
+        stopped_seen.add(pid)
+        if event in (1,2,3):
+            new=ctypes.c_ulong();ptrace(0x4201,pid,0,ctypes.addressof(new));threads.add(new.value)
+            if new.value not in stopped_seen:pending.add(new.value)
+        elif event==4:
+            if pid==root and not exec_seen:
+                exec_seen=True;observe_start(root);emit('ready',pid=root)
+            else:observe_exec(pid)
+        elif event==6:
+            terminal=ctypes.c_ulong();ptrace(0x4201,pid,0,ctypes.addressof(terminal))
+            identity=processes.get(pid)
+            if identity:
+                if pid in exit_stops:raise ValueError('Duplicate process exit stop')
+                exit_stops[pid]=terminal.value
+                emit('exit-pending',pid=pid,startTimeTicks=identity['startTimeTicks'],**termination(terminal.value))
+            sample()
+        elif sig==signal.SIGSTOP:pending.discard(pid);observe_start(pid)
+        if sig!=signal.SIGSTOP and not event:emit('signal',pid=pid,signal=sig)
+        ptrace(7,pid,0,0 if event or sig==signal.SIGSTOP else sig)
 ptrace(7,root)
 try:
     while threads:
+        # Consume already-observable exit causes before accepting a final close.
+        drain_wait_events()
         for key,_ in selector.select(0):
             chunk=os.read(sys.stdin.fileno(),65536)
             if not chunk:close(False);selector.unregister(sys.stdin);break
@@ -155,40 +223,10 @@ try:
                     if type(value)!=int or value<progress or value>5400:raise ValueError('Invalid progress')
                     progress=value
                     if value in (0,5400):sample()
-                elif command.get('type')=='close':close(command.get('expected') is True)
+                elif command.get('type')=='close':
+                    drain_wait_events()
+                    close(command.get('expected') is True)
                 else:raise ValueError('Unknown observer command')
-        while True:
-            try:pid,state=os.waitpid(-1,os.WNOHANG|0x40000000)
-            except ChildProcessError:break
-            if pid==0:break
-            if os.WIFEXITED(state) or os.WIFSIGNALED(state):
-                threads.discard(pid);pending.discard(pid)
-                identity=processes.pop(pid,None)
-                failed=os.WIFSIGNALED(state) or os.WEXITSTATUS(state)!=0
-                if identity:
-                    if failed and not (closing and expected_close):crashes+=1
-                    emit('exit',pid=pid,startTimeTicks=identity['startTimeTicks'],exitCode=os.WEXITSTATUS(state) if os.WIFEXITED(state) else None,signal=os.WTERMSIG(state) if os.WIFSIGNALED(state) else None,expected=closing and expected_close)
-                    if not closing:
-                        emit('change',change='exit',pid=pid,startTimeTicks=identity['startTimeTicks'],reason='kernel wait status')
-                        sample()
-                if pid==root and not closing:close(False)
-                continue
-            if not os.WIFSTOPPED(state):complete=False;continue
-            threads.add(pid);event=state>>16;sig=os.WSTOPSIG(state)
-            if sig==signal.SIGSTOP and pid in stopped_seen and not event:raise ValueError('Unexpected repeated process stop')
-            stopped_seen.add(pid)
-            if event in (1,2,3):
-                new=ctypes.c_ulong();ptrace(0x4201,pid,0,ctypes.addressof(new));threads.add(new.value)
-                if new.value not in stopped_seen:pending.add(new.value)
-            elif event==4:
-                if pid==root and not exec_seen:
-                    exec_seen=True;observe_start(root);emit('ready',pid=root)
-                else:observe_start(pid)
-            elif event==6:sample()
-            elif sig==signal.SIGSTOP:pending.discard(pid);observe_start(pid)
-            if sig!=signal.SIGSTOP and not event:
-                emit('signal',pid=pid,signal=sig)
-            ptrace(7,pid,0,0 if event or sig==signal.SIGSTOP else sig)
         if not closing and time.monotonic()-last_sample>=0.25:sample()
         if not closing and time.monotonic()-last_auxiliary>=0.25:auxiliary_sample()
         time.sleep(0.002)
@@ -264,12 +302,12 @@ export interface MemorySample {
   readonly processes: readonly ProcessRss[];
 }
 
-export interface ProcessChange extends ProcessIdentity {
+export type ProcessChange = ProcessIdentity & {
   readonly timestampMs: number;
-  readonly change: 'start' | 'exit';
   /** Explanation supplied by the actual lifecycle observer. */
   readonly reason: string;
-}
+} & ({ readonly change: 'start' | 'exit' }
+  | { readonly change: 'exec'; readonly previousRole: ChromiumRole; readonly role: ChromiumRole });
 
 export interface MemoryEvidence {
   readonly samples: readonly MemorySample[];
@@ -342,7 +380,8 @@ function isSample(value: unknown): value is JsonRecord & MemorySample {
 
 function isProcessChange(value: unknown): value is JsonRecord & ProcessChange {
   return isIdentity(value) && finiteNonnegative(value.timestampMs)
-    && (value.change === 'start' || value.change === 'exit')
+    && (value.change === 'start' || value.change === 'exit'
+      || (value.change === 'exec' && isRole(value.previousRole) && isRole(value.role)))
     && typeof value.reason === 'string' && value.reason.trim().length > 0;
 }
 
@@ -419,8 +458,17 @@ function validateTransition(
     if (!next && !explainedChange(changes, process, 'exit', previous.timestampMs, current.timestampMs)) {
       reasons.push(`sample ${index}: unexplained process exit or PID reuse`);
     }
-    if (next && (next.parentPid !== process.parentPid || next.role !== process.role)) {
-      reasons.push(`sample ${index}: process ancestry or role changed without stable identity evidence`);
+    if (next) {
+      let role = process.role;
+      for (const event of changes) {
+        if (event.change !== 'exec' || identityKey(event) !== key
+          || event.timestampMs <= previous.timestampMs || event.timestampMs > current.timestampMs) continue;
+        if (event.previousRole !== role) reasons.push(`sample ${index}: exec role does not match its prior observed role`);
+        role = event.role;
+      }
+      if (next.parentPid !== process.parentPid || next.role !== role) {
+        reasons.push(`sample ${index}: process ancestry or role changed without stable identity evidence`);
+      }
     }
   }
   for (const [key, process] of newProcesses) {
@@ -488,8 +536,8 @@ export function classifyMemory(value: unknown): MemoryResult {
       reasons.push('Lifecycle events are not in chronological order');
     }
     const identity = identityKey(event);
-    if (rootIdentities.has(identity) && (event.change === 'exit' || event.timestampMs > first.timestampMs)) {
-      reasons.push('Observed root exit or later root start contradicts an uninterrupted live-browser timeline');
+    if (rootIdentities.has(identity) && (event.change !== 'start' || event.timestampMs > first.timestampMs)) {
+      reasons.push('Observed root exit, exec or later root start contradicts an uninterrupted live-browser timeline');
     }
     if (event.timestampMs <= first.timestampMs) {
       const initiallyPresent = first.processes.some((process) => identityKey(process) === identity);
@@ -509,10 +557,12 @@ export function classifyMemory(value: unknown): MemoryResult {
       if (liveIdentitiesByPid.has(event.pid)) reasons.push('Process start occurs before the previous identity with that PID exited');
       if (exitedIdentities.has(identity)) reasons.push('An exited process identity cannot start or reappear again');
       liveIdentitiesByPid.set(event.pid, identity);
-    } else {
+    } else if (event.change === 'exit') {
       if (liveIdentitiesByPid.get(event.pid) !== identity) reasons.push('Process exit does not match the live identity for its PID');
       liveIdentitiesByPid.delete(event.pid);
       exitedIdentities.add(identity);
+    } else if (liveIdentitiesByPid.get(event.pid) !== identity) {
+      reasons.push('Process exec does not match the live identity for its PID');
     }
     const nextIndex = samples.findIndex((sample) => sample.timestampMs >= event.timestampMs);
     const previousSample = samples[nextIndex - 1];
@@ -523,7 +573,8 @@ export function classifyMemory(value: unknown): MemoryResult {
     }
     const wasPresent = previousSample.processes.some((process) => identityKey(process) === identity);
     const isPresent = nextSample.processes.some((process) => identityKey(process) === identity);
-    const corresponds = event.change === 'start' ? !wasPresent && isPresent : wasPresent && !isPresent;
+    const corresponds = event.change === 'start' ? !wasPresent && isPresent
+      : event.change === 'exit' ? wasPresent && !isPresent : wasPresent && isPresent;
     if (!corresponds) reasons.push('Lifecycle event contradicts sampled process identities or has no sampled transition');
     const eventKey = `${nextIndex}:${identity}:${event.change}`;
     if (eventKeys.has(eventKey)) reasons.push('Multiple lifecycle records claim the same observed process transition');
@@ -1322,6 +1373,22 @@ export interface ObserverResult {
   readonly reasons: readonly string[];
 }
 
+interface ProcessTermination {
+  readonly waitStatus: number;
+  readonly exitCode: number | null;
+  readonly signal: number | null;
+}
+
+/** Decode the Linux terminal wait word independently of the observer's labels. */
+function isTermination(value: JsonRecord): value is JsonRecord & ProcessTermination {
+  if (!nonnegativeInteger(value.waitStatus) || value.waitStatus > 65535) return false;
+  const signal = value.waitStatus & 0x7f;
+  if (signal === 0) return (value.waitStatus & 0xff) === 0
+    && value.exitCode === (value.waitStatus >>> 8) && value.signal === null;
+  return signal <= 64 && (value.waitStatus & 0xff00) === 0
+    && value.exitCode === null && value.signal === signal;
+}
+
 /** Only retained kernel-observer events can establish lifecycle completeness. */
 export function reconcileObserverEvents(events: readonly unknown[]): ObserverResult {
   const samples: MemorySample[] = [];
@@ -1329,71 +1396,148 @@ export function reconcileObserverEvents(events: readonly unknown[]): ObserverRes
   const reasons: string[] = [];
   let summary: JsonRecord | null = null;
   let sawReady = false;
-  let observedCrashes = 0;
+  const crashed = new Set<string>();
   const started = new Set<string>();
   const exited = new Set<string>();
+  const live = new Map<number, string>();
+  const cleanup = new Map<string, {eligible: boolean; timestampMs: number}>();
+  const pending = new Map<string, ProcessTermination & {expectedCleanup: boolean; timestampMs: number}>();
   let closing = false;
+  let expectedClose = false;
+  let previousTimestamp = -1;
   for (const item of events) {
     if (!isRecord(item) || !finiteNonnegative(item.timestampMs) || typeof item.type !== 'string') {
       reasons.push('Malformed observer event'); continue;
     }
+    if (item.timestampMs < previousTimestamp) reasons.push('Observer events are not chronological');
+    previousTimestamp = item.timestampMs;
     if (summary) reasons.push('Events appeared after observer summary');
     if (item.type === 'fatal') reasons.push(nonemptyText(item.reason) ? item.reason : 'Observer failed');
-    if (item.type === 'ready') sawReady = true;
+    if (item.type === 'ready') {
+      if (sawReady || !positiveInteger(item.pid) || !live.has(item.pid)) reasons.push('Invalid or repeated observer ready event');
+      sawReady = true;
+    }
     if (item.type === 'closing') {
-      closing = item.expectedFinalClose === true;
-      if (closing && samples.at(-1)?.completedFrames !== 5400) reasons.push('Final close excluded without complete frame progress');
+      if (closing || typeof item.expectedFinalClose !== 'boolean') reasons.push('Invalid or repeated close boundary');
+      closing = true; expectedClose = item.expectedFinalClose === true;
+      if (expectedClose && samples.at(-1)?.completedFrames !== 5400) reasons.push('Final close excluded without complete frame progress');
     }
     if (item.type === 'sample') {
-      if (!isSample(item)) reasons.push('Invalid observer RSS sample');
+      if (closing) reasons.push('RSS sample appeared after the final measurement boundary');
+      else if (!isSample(item)) reasons.push('Invalid observer RSS sample');
       else samples.push(item);
     }
     if (item.type === 'change') {
-      if (!isIdentity(item) || (item.change !== 'start' && item.change !== 'exit') || !nonemptyText(item.reason)) {
+      if (!isProcessChange(item)) {
         reasons.push('Invalid lifecycle change'); continue;
       }
       const key = `${item.pid}:${item.startTimeTicks}`;
+      if (closing) reasons.push('Process inventory changed after the measurement boundary');
       if (item.change === 'start') {
-        if (closing) reasons.push('New process appeared during final close');
-        if (started.has(key)) reasons.push('Duplicate process start');
-        started.add(key);
+        if (started.has(key) || live.has(item.pid)) reasons.push('Duplicate process start or overlapping PID identity');
+        started.add(key); live.set(item.pid, key);
+      } else if (item.change === 'exec' && live.get(item.pid) !== key) {
+        reasons.push('Exec lacks its original live identity');
+      } else if (item.change === 'exit' && !exited.has(key)) {
+        reasons.push('Inventory exit lacks a terminal wait event');
       }
-      processChanges.push({pid: item.pid, startTimeTicks: item.startTimeTicks,
-        timestampMs: item.timestampMs, change: item.change, reason: item.reason});
+      if (!closing) processChanges.push(item);
+    }
+    if (item.type === 'cleanup-signal') {
+      if (!isIdentity(item) || item.signal !== 9) {reasons.push('Invalid cleanup signal receipt'); continue;}
+      const key = identityKey(item);
+      if (!closing || live.get(item.pid) !== key || cleanup.has(key)) reasons.push('Cleanup signal lacks its close boundary or live identity');
+      // Eligibility is decided now, before any later exit status is known.
+      cleanup.set(key, {eligible: closing && expectedClose && live.get(item.pid) === key && !pending.has(key), timestampMs: item.timestampMs});
+    }
+    if (item.type === 'exit-pending') {
+      if (!isIdentity(item) || !isTermination(item)) {reasons.push('Invalid kernel exit-stop status'); continue;}
+      const key = identityKey(item);
+      if (live.get(item.pid) !== key || pending.has(key)) reasons.push('Unmatched or duplicate kernel exit stop');
+      const sent = cleanup.get(key);
+      const expectedCleanup = expectedClose && sent?.eligible === true && sent.timestampMs < item.timestampMs && item.signal === 9;
+      pending.set(key, {waitStatus: item.waitStatus, exitCode: item.exitCode, signal: item.signal, expectedCleanup, timestampMs: item.timestampMs});
+      if ((item.signal !== null || item.exitCode !== 0) && !expectedCleanup) crashed.add(key);
     }
     if (item.type === 'exit') {
-      if (!isIdentity(item)) { reasons.push('Invalid process exit'); continue; }
+      if (!isIdentity(item) || !isTermination(item)) { reasons.push('Invalid process exit'); continue; }
       const key = `${item.pid}:${item.startTimeTicks}`;
-      if (!started.has(key) || exited.has(key)) reasons.push('Unmatched or duplicate process exit');
-      exited.add(key);
-      if (item.expected === true && !closing) reasons.push('Exit excluded before deliberate final close');
-      if (item.expected !== true && (item.signal !== null || item.exitCode !== 0)) observedCrashes++;
+      if (live.get(item.pid) !== key || exited.has(key)) reasons.push('Unmatched or duplicate process exit');
+      const stop = pending.get(key);
+      const matchesStop = stop !== undefined && stop.waitStatus === item.waitStatus && stop.timestampMs < item.timestampMs;
+      if (!matchesStop) reasons.push('Terminal status lacks a matching prior kernel exit stop');
+      const expected = matchesStop && stop.expectedCleanup && item.signal === 9;
+      if (item.expected !== expected) reasons.push('Exit exclusion disagrees with its per-process cleanup and kernel status');
+      exited.add(key); live.delete(item.pid);
+      if (!expected && (item.signal !== null || item.exitCode !== 0)) crashed.add(key);
     }
     if (item.type === 'summary') summary = item;
   }
+  const observedCrashes = crashed.size;
   if (!sawReady || !summary || summary.complete !== true || !nonnegativeInteger(summary.crashedProcesses)
-    || summary.crashedProcesses !== observedCrashes || started.size !== exited.size) reasons.push('Incomplete lifecycle coverage');
+    || summary.crashedProcesses !== observedCrashes || started.size !== exited.size || live.size !== 0
+    || summary.expectedFinalCloseExcluded !== expectedClose) reasons.push('Incomplete lifecycle coverage');
   return {memory: {samples, processChanges}, complete: reasons.length === 0,
-    crashedProcesses: observedCrashes, expectedFinalCloseExcluded: summary?.expectedFinalCloseExcluded === true && closing, reasons};
+    crashedProcesses: observedCrashes, expectedFinalCloseExcluded: summary?.expectedFinalCloseExcluded === true && expectedClose, reasons};
 }
 
-/** Offline prerequisite check on an owned, empty process; never Chrome. */
+/** Synthetic Node prerequisite: fork/exec, one crash, then owned final cleanup. */
 export async function verifyObserverCapability(): Promise<ObserverResult> {
+  const version = execFileSync(OBSERVER_PYTHON, ['--version'], {encoding: 'utf8'}).trim();
+  if (version !== OBSERVER_PYTHON_VERSION) throw new Error('Unreviewed observer runtime version');
   const output = await new Promise<string>((resolveOutput, reject) => {
-    const version = execFileSync(OBSERVER_PYTHON, ['--version'], {encoding: 'utf8'}).trim();
-    if (version !== OBSERVER_PYTHON_VERSION) {reject(new Error('Unreviewed observer runtime version')); return;}
-    const probe = "const {spawnSync}=require('node:child_process');spawnSync(process.execPath,['-e','process.exit(0)']);spawnSync(process.execPath,['-e','process.kill(process.pid,\"SIGTERM\")']);";
+    const probe = "const {spawn,spawnSync}=require('node:child_process');spawnSync(process.execPath,['-e','process.exit(0)']);spawnSync(process.execPath,['-e','process.kill(process.pid,\"SIGTERM\")']);for(const role of ['renderer','gpu-process'])spawn(process.execPath,['-e','setInterval(()=>{},1000)','--','--type='+role]);setInterval(()=>{},1000);";
     const child = spawn(OBSERVER_PYTHON, ['-u', '-c', LINUX_OBSERVER_SOURCE, process.execPath, '-e', probe], {stdio: ['pipe', 'pipe', 'pipe']});
-    let text = ''; let diagnostics = '';
-    child.stdout.setEncoding('utf8').on('data', (chunk: string) => {text += chunk;});
+    let text = ''; let diagnostics = ''; let buffered = ''; let closeSent = false;
+    const roles = new Set<string>(); let sawNormalExit = false; let sawDeliberateCrash = false;
+    child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
+      text += chunk; buffered += chunk;
+      for (;;) {
+        const end = buffered.indexOf('\n'); if (end < 0) break;
+        const line = buffered.slice(0, end); buffered = buffered.slice(end + 1);
+        try {
+          const event: unknown = JSON.parse(line);
+          if (!isRecord(event)) throw new Error('Invalid probe event');
+          if (event.type === 'change' && event.change === 'exec' && isRole(event.role)) roles.add(event.role);
+          if (event.type === 'exit' && event.exitCode === 0) sawNormalExit = true;
+          if (event.type === 'exit' && event.signal === 15) sawDeliberateCrash = true;
+          if (!closeSent && sawNormalExit && sawDeliberateCrash && roles.has('renderer') && roles.has('gpu')) {
+            closeSent = true;
+            // This is authored probe progress, not a claim of rendered frames.
+            child.stdin.end('{"type":"progress","completedFrames":5400}\n{"type":"close","expected":true}\n');
+          }
+        } catch {diagnostics += 'Malformed observer prerequisite event';}
+      }
+    });
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => {diagnostics += chunk;});
+    child.stdin.on('error', error => {diagnostics += `Prerequisite input closed: ${errorText(error)}`;});
     const timeout = setTimeout(() => {child.kill('SIGKILL'); reject(new Error('Observer prerequisite timeout'));}, 5000);
     child.once('error', error => {clearTimeout(timeout); reject(error);});
-    child.once('close', code => {clearTimeout(timeout); if (code !== 0 || diagnostics) reject(new Error(`Observer prerequisite unavailable (exit ${code})`)); else resolveOutput(text);});
+    child.once('close', code => {
+      clearTimeout(timeout);
+      if (code !== 0 || diagnostics) {
+        const fatal = text.split('\n').flatMap(line => {
+          try {const event: unknown = JSON.parse(line); return isRecord(event) && event.type === 'fatal' && nonemptyText(event.reason) ? [event.reason] : [];}
+          catch {return [];}
+        }).join('; ');
+        reject(new Error(`Observer prerequisite unavailable (exit ${code}): ${(fatal || diagnostics).slice(0,1000)}`));
+      } else resolveOutput(text);
+    });
   });
-  const result = reconcileObserverEvents(output.trim().split('\n').map(line => JSON.parse(line) as unknown));
+  const events = output.trim().split('\n').map(line => JSON.parse(line) as unknown);
+  const result = reconcileObserverEvents(events);
   const starts = result.memory.processChanges.filter(change => change.change === 'start');
-  if (!result.complete || result.crashedProcesses !== 1 || starts.length < 3) throw new Error('Kernel process-lifecycle self-test failed to capture the deliberate child signal; no browser may open');
+  const execRoles = result.memory.processChanges.filter(change => change.change === 'exec').map(change => change.role);
+  const closeIndex = events.findIndex(event => isRecord(event) && event.type === 'closing');
+  const samplesAfterClose = events.slice(closeIndex + 1).filter(event => isRecord(event) && event.type === 'sample').length;
+  if (!result.complete || result.crashedProcesses !== 1 || starts.length < 5 || !result.expectedFinalCloseExcluded
+    || !execRoles.includes('renderer') || !execRoles.includes('gpu') || closeIndex < 0 || samplesAfterClose !== 0) {
+    throw new Error(`Kernel lifecycle prerequisite failed; no browser may open: ${result.reasons.join('; ')}`);
+  }
+  console.log(JSON.stringify({check: 'WP004A_OBSERVER_PREREQUISITE',syntheticNodeOnly: true,
+    python: version,node: process.versions.node,processStarts: starts.length,execRoles,
+    deliberateCrashes: result.crashedProcesses,expectedFinalCloseExcluded: result.expectedFinalCloseExcluded,
+    samplesAfterClose,lifecycleComplete: result.complete}));
   return result;
 }
 
@@ -1461,7 +1605,7 @@ export function singleLocalNavigation<A extends {url: string}, R extends {status
 }
 
 /** Changes to active renderer/GPU identities are conservatively treated as restarts. */
-export function observeActiveProcessRestarts(samples: readonly MemorySample[]): {complete: boolean; count: number; reasons: string[]} {
+export function observeActiveProcessRestarts(samples: readonly MemorySample[], changes: readonly ProcessChange[] = []): {complete: boolean; count: number; reasons: string[]} {
   const active = samples.filter(sample => sample.completedFrames > 0 && sample.completedFrames < 5400);
   let previous: string | null = null;
   let count = 0;
@@ -1473,6 +1617,13 @@ export function observeActiveProcessRestarts(samples: readonly MemorySample[]): 
       .map(process => `${process.role}:${process.pid}:${process.startTimeTicks}`).sort().join('|');
     if (previous !== null && previous !== identities) count++;
     previous = identities;
+  }
+  // A same-role exec replaces the running image without changing PID/starttime.
+  // Initial other-to-role execs remain distinct from these active replacements.
+  for (const event of changes) {
+    if (event.change !== 'exec' || event.previousRole !== event.role || !['browser', 'renderer', 'gpu'].includes(event.role)) continue;
+    const before = samples.filter(sample => sample.timestampMs < event.timestampMs).at(-1);
+    if (before && before.completedFrames > 0 && before.completedFrames < 5400) count++;
   }
   return {complete: reasons.length === 0, count, reasons: [...new Set(reasons)]};
 }
@@ -1749,7 +1900,7 @@ export async function runBenchmark(authorizationPath: string): Promise<void> {
         observed.progress(5400); finalClose = true; await observed.close(true); active = null;
         const completedAtMs = monotonicMs();
         const lifecycle = reconcileObserverEvents(observed.events);
-        const restarts = observeActiveProcessRestarts(lifecycle.memory.samples);
+        const restarts = observeActiveProcessRestarts(lifecycle.memory.samples, lifecycle.memory.processChanges);
         const observation = await writeEvidence(directory, `${variant}-lifecycle.json`, {events: observed.events, reconciliation: lifecycle, restarts});
         const progressEvidence = await writeEvidence(directory, `${variant}-progress.json`, progressLog);
         const timingEvidence = await writeEvidence(directory, `${variant}-timing.json`, {startedAtMs, completedAtMs});

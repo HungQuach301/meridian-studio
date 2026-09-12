@@ -1,7 +1,7 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { BENCHMARK_SPEC, BROWSER_VERSION, BROWSER_ARCHIVE_URL, PREFLIGHT_REQUIREMENTS, classifyMemory, evaluateBenchmarkAcceptance, evaluateFrameCadence, parseFfprobeVideo, parseProcStat, parseProcStatus, parseProcessRssObservation, validateBenchmarkConfig, validateBenchmarkPreflight, validateRunAuthorization, reconcileObserverEvents, verifyObserverCapability, singleLocalNavigation, observeActiveProcessRestarts } from './canvas-spike.js';
-import type { BenchmarkAcceptanceEvidence, BenchmarkPreflight, EvidenceReference, MemoryEvidence, MemorySample, ProcessRss, RenderAcceptanceEvidence } from './canvas-spike.js';
+import type { BenchmarkAcceptanceEvidence, BenchmarkPreflight, EvidenceReference, MemoryEvidence, MemorySample, ProcessChange, ProcessRss, RenderAcceptanceEvidence } from './canvas-spike.js';
 
 const MiB = 1024 * 1024;
 
@@ -85,8 +85,10 @@ function observerEvents(): Record<string, unknown>[] {
     {type: 'sample', timestampMs: 19, completedFrames: 5400, rootProcess: {pid: 100, startTimeTicks: '1000'}, treeComplete: true,
       processes: [{pid: 100, startTimeTicks: '1000', parentPid: 50, role: 'browser', rssBytes: 100 * MiB}]},
     {type: 'closing', timestampMs: 20, expectedFinalClose: true},
-    {type: 'exit', timestampMs: 21, pid: 100, startTimeTicks: '1000', exitCode: null, signal: 9, expected: true},
-    {type: 'summary', timestampMs: 22, complete: true, crashedProcesses: 0, expectedFinalCloseExcluded: true},
+    {type: 'cleanup-signal', timestampMs: 21, pid: 100, startTimeTicks: '1000', signal: 9},
+    {type: 'exit-pending', timestampMs: 22, pid: 100, startTimeTicks: '1000', waitStatus: 9, exitCode: null, signal: 9},
+    {type: 'exit', timestampMs: 23, pid: 100, startTimeTicks: '1000', waitStatus: 9, exitCode: null, signal: 9, expected: true},
+    {type: 'summary', timestampMs: 24, complete: true, crashedProcesses: 0, expectedFinalCloseExcluded: true},
   ];
 }
 
@@ -103,18 +105,117 @@ test('lifecycle reconciliation rejects missing, duplicate, mismatched and late e
   const original = observerEvents();
   for (const events of [original.slice(0, -1), original.filter(e => e.type !== 'ready'),
     original.map(e => e.type === 'exit' ? {...e, startTimeTicks: 'different'} : e),
-    [...original.slice(0, 6), original[5], original[6]],
-    [...original, {type: 'fatal', timestampMs: 23, reason: 'observer lost coverage'}],
+    [...original.slice(0, -1), original.find(e => e.type === 'exit'), original.at(-1)],
+    [...original, {type: 'fatal', timestampMs: 25, reason: 'observer lost coverage'}],
     original.map(e => e.type === 'summary' ? {...e, crashedProcesses: 1} : e),
     original.map(e => e.type === 'closing' ? {...e, expectedFinalClose: false} : e),
     original.filter(e => !(e.type === 'sample' && e.completedFrames === 5400)),
   ]) assert.equal(reconcileObserverEvents(events).complete, false);
 });
 
-test.runIf(process.env.GITHUB_ACTIONS === 'true')('Linux observer captures normal and deliberately signaled short-lived children before any browser', async () => {
+/** Authored events exercise bookkeeping only; these are not Chromium measurements. */
+function fullObserverEvents(): Record<string, unknown>[] {
+  const samples = evidence().samples.map(sample => ({...sample, type: 'sample', timestampMs: sample.timestampMs + 10}));
+  const processes = samples[0]!.processes;
+  const events: Record<string, unknown>[] = processes.map((process, index) => ({type: 'change', timestampMs: index + 1,
+    pid: process.pid, startTimeTicks: process.startTimeTicks, change: 'start', reason: 'synthetic initial identity'}));
+  events.push({type: 'ready', timestampMs: 5, pid: 100}, ...samples);
+  let time = samples.at(-1)!.timestampMs;
+  events.push({type: 'closing', timestampMs: ++time, expectedFinalClose: true});
+  for (const process of processes) events.push({type: 'cleanup-signal', timestampMs: ++time,
+    pid: process.pid, startTimeTicks: process.startTimeTicks, signal: 9});
+  // Children exit first while the root is still observable.
+  for (const process of [...processes.slice(1), processes[0]!]) {
+    const terminal = {pid: process.pid, startTimeTicks: process.startTimeTicks, waitStatus: 9, exitCode: null, signal: 9};
+    events.push({type: 'exit-pending', timestampMs: ++time, ...terminal},
+      {type: 'exit', timestampMs: ++time, ...terminal, expected: true});
+  }
+  events.push({type: 'summary', timestampMs: ++time, complete: true, crashedProcesses: 0, expectedFinalCloseExcluded: true});
+  return events;
+}
+
+test('expected multi-process cleanup keeps the complete pre-close RAM timeline unchanged', () => {
+  const events = fullObserverEvents();
+  const result = reconcileObserverEvents(events);
+  assert.equal(result.complete, true, result.reasons.join('; '));
+  assert.equal(result.crashedProcesses, 0);
+  assert.equal(result.expectedFinalCloseExcluded, true);
+  assert.equal(result.memory.samples.length, 541);
+  assert.equal(result.memory.samples[0]!.completedFrames, 0);
+  assert.equal(result.memory.samples.at(-1)!.completedFrames, 5400);
+  const ram = classifyMemory(result.memory);
+  assert.equal(ram.classification, 'PASS', ram.reasons.join('; '));
+  assert.equal(ram.windows.length, 18);
+});
+
+test('a post-close RSS sample cannot contaminate RAM or silently establish valid coverage', () => {
+  const events = fullObserverEvents();
+  const exitIndex = events.findIndex(event => event.type === 'exit');
+  const finalSample = reconcileObserverEvents(events).memory.samples.at(-1)!;
+  events.splice(exitIndex + 1, 0, {...finalSample, type: 'sample', timestampMs: Number(events[exitIndex]!.timestampMs) + 0.5,
+    processes: finalSample.processes.filter(process => process.pid !== 101)});
+  const result = reconcileObserverEvents(events);
+  assert.equal(result.complete, false);
+  assert.match(result.reasons.join('; '), /RSS sample appeared after/);
+  assert.equal(result.memory.samples.length, 541);
+  assert.equal(classifyMemory(result.memory).classification, 'PASS');
+});
+
+test('a final-close label cannot exempt SIGSEGV or a nonzero exit code', () => {
+  for (const termination of [{waitStatus: 11, signal: 11, exitCode: null}, {waitStatus: 7 << 8, signal: null, exitCode: 7}]) {
+    const events = fullObserverEvents().map(event => event.pid === 101 && (event.type === 'exit' || event.type === 'exit-pending')
+      ? {...event, ...termination} : event);
+    const result = reconcileObserverEvents(events);
+    assert.equal(result.complete, false);
+    assert.equal(result.crashedProcesses, 1);
+    assert.match(result.reasons.join('; '), /Exit exclusion disagrees/);
+  }
+});
+
+test('an exit committed before cleanup remains a crash even when both signals are SIGKILL', () => {
+  for (const terminal of [{waitStatus: 9, signal: 9, exitCode: null}, {waitStatus: 11, signal: 11, exitCode: null},
+    {waitStatus: 7 << 8, signal: null, exitCode: 7}]) {
+    const events = fullObserverEvents().filter(event => !(event.type === 'exit-pending' && event.pid === 101));
+    const closeIndex = events.findIndex(event => event.type === 'closing');
+    events.splice(closeIndex, 0, {type: 'exit-pending', timestampMs: Number(events[closeIndex]!.timestampMs) - 0.5,
+      pid: 101, startTimeTicks: '1210', ...terminal});
+    const result = reconcileObserverEvents(events.map(event => event.type === 'exit' && event.pid === 101
+      ? {...event, ...terminal, expected: false} : event.type === 'summary' ? {...event, crashedProcesses: 1} : event));
+    assert.equal(result.complete, true, result.reasons.join('; '));
+    assert.equal(result.crashedProcesses, 1);
+    assert.equal(classifyMemory(result.memory).classification, 'PASS');
+  }
+});
+
+test('a kernel exit cause stays visible if the later terminal event is missing or disagrees', () => {
+  const events = fullObserverEvents().map(event => event.type === 'exit-pending' && event.pid === 101
+    ? {...event, waitStatus: 11, signal: 11} : event);
+  for (const candidate of [events, events.filter(event => !(event.type === 'exit' && event.pid === 101))]) {
+    const result = reconcileObserverEvents(candidate);
+    assert.equal(result.complete, false);
+    assert.equal(result.crashedProcesses, 1);
+  }
+});
+
+test('cleanup exclusion requires matching identity, signal receipt, exit stop and terminal wait word', () => {
+  const original = observerEvents();
+  const cases = [original.filter(event => event.type !== 'cleanup-signal'), original.filter(event => event.type !== 'exit-pending'),
+    original.map(event => event.type === 'cleanup-signal' ? {...event, startTimeTicks: '1001'} : event),
+    original.map(event => event.type === 'exit-pending' ? {...event, waitStatus: 11} : event),
+    original.map(event => event.type === 'exit' ? {...event, waitStatus: 0, exitCode: 0, signal: null} : event),
+    original.map(event => event.type === 'exit' ? {...event, waitStatus: 65536} : event),
+    original.map(event => event.type === 'cleanup-signal' ? {...event, timestampMs: 9} : event),
+  ];
+  for (const events of cases) assert.equal(reconcileObserverEvents(events).complete, false);
+});
+
+test.runIf(process.env.GITHUB_ACTIONS === 'true')('Linux observer captures Node fork/exec roles, a deliberate crash and multi-process final cleanup without browser', async () => {
   const result = await verifyObserverCapability();
   assert.equal(result.complete, true);
   assert.equal(result.crashedProcesses, 1);
+  assert.equal(result.expectedFinalCloseExcluded, true);
+  assert.ok(result.memory.processChanges.some(change => change.change === 'exec' && change.previousRole === 'other' && change.role === 'renderer'));
+  assert.ok(result.memory.processChanges.some(change => change.change === 'exec' && change.previousRole === 'other' && change.role === 'gpu'));
 }, 10000);
 
 test('all 5400 scene models retain object identities and the authored dataset', async () => {
@@ -328,6 +429,54 @@ function evidence(rss: (window: number, sampleInWindow: number) => number = () =
 function replaceSample(input: MemoryEvidence, index: number, change: (sample: MemorySample) => MemorySample): MemoryEvidence {
   return { ...input, samples: input.samples.map((sample, current) => current === index ? change(sample) : sample) };
 }
+
+test('a retained fork-to-exec role transition preserves identity, warm-up samples and all RAM windows', () => {
+  const original = evidence();
+  const input = replaceSample(original, 0, sample => ({...sample,
+    processes: sample.processes.map(process => process.pid === 101 ? {...process, role: 'other'} : process)}));
+  const exec: ProcessChange = {pid: 101, startTimeTicks: '1210', timestampMs: 125,
+    change: 'exec', previousRole: 'other', role: 'renderer', reason: 'synthetic kernel exec before child resume'};
+  const result = classifyMemory({...input, processChanges: [exec]});
+  assert.equal(result.classification, 'PASS', result.reasons.join('; '));
+  assert.deepEqual(result.windows, classifyMemory(original).windows);
+  assert.deepEqual(result.metrics, classifyMemory(original).metrics);
+  assert.equal(input.samples[0]!.processes[1]!.role, 'other');
+  assert.equal(input.samples.length, original.samples.length);
+
+  const events = fullObserverEvents();
+  const first = events.findIndex(event => event.type === 'sample');
+  events[first] = {...events[first], processes: input.samples[0]!.processes};
+  events.splice(first + 1, 0, {...exec, type: 'change', timestampMs: 135});
+  const reconciled = reconcileObserverEvents(events);
+  assert.equal(reconciled.complete, true, reconciled.reasons.join('; '));
+  assert.ok(reconciled.memory.processChanges.some(change => change.change === 'exec'));
+  assert.equal(classifyMemory(reconciled.memory).classification, 'PASS');
+});
+
+test('exec evidence cannot excuse a missing event, wrong identity, wrong prior role, ancestry change or root restart', () => {
+  const input = replaceSample(evidence(), 0, sample => ({...sample,
+    processes: sample.processes.map(process => process.pid === 101 ? {...process, role: 'other'} : process)}));
+  const exec: ProcessChange = {pid: 101, startTimeTicks: '1210', timestampMs: 125,
+    change: 'exec', previousRole: 'other', role: 'renderer', reason: 'synthetic kernel exec'};
+  for (const processChanges of [[], [{...exec, startTimeTicks: '1211'}], [{...exec, previousRole: 'gpu'}],
+    [{...exec, role: undefined}], [{...exec, timestampMs: 251}], [exec, exec]]) {
+    assert.equal(classifyMemory({...input, processChanges}).classification, 'INCONCLUSIVE');
+  }
+  const ancestry = replaceSample(input, 1, sample => ({...sample,
+    processes: sample.processes.map(process => process.pid === 101 ? {...process, parentPid: 102} : process)}));
+  assert.equal(classifyMemory({...ancestry, processChanges: [exec]}).classification, 'INCONCLUSIVE');
+  assert.equal(classifyMemory({...evidence(), processChanges: [{...exec, pid: 100, startTimeTicks: '1200',
+    previousRole: 'browser', role: 'browser'}]}).classification, 'INCONCLUSIVE');
+});
+
+test('accepting exec identity evidence cannot hide a same-role renderer restart during active frames', () => {
+  const input = evidence();
+  const exec: ProcessChange = {pid: 101, startTimeTicks: '1210', timestampMs: 1250,
+    change: 'exec', previousRole: 'renderer', role: 'renderer', reason: 'synthetic image replacement'};
+  assert.equal(observeActiveProcessRestarts(input.samples, [exec]).count, 1);
+  assert.equal(observeActiveProcessRestarts(input.samples, [{...exec, timestampMs: 125}]).count, 0);
+  assert.equal(observeActiveProcessRestarts(input.samples, [{...exec, timestampMs: 135001}]).count, 0);
+});
 
 test('accepts only the fixed benchmark configuration, including full static rendering and no restart', () => {
   assert.equal(validateBenchmarkConfig(structuredClone(BENCHMARK_SPEC)).valid, true);
