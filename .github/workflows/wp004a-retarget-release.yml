@@ -1,0 +1,176 @@
+name: WP-004a retarget existing draft (one owner approval)
+
+# PROPOSAL ONLY. Creating the branch below is an execution action and requires
+# the owner's approval in chat. Do not merge this workflow into main.
+on:
+  push:
+    branches: ['wp/WP-004a-retarget-2e068c4']
+    paths: ['.github/workflows/wp004a-retarget-release.yml']
+
+permissions: {}
+concurrency:
+  group: wp004a-canvas-spike
+  cancel-in-progress: false
+
+jobs:
+  retarget:
+    if: github.repository == 'HungQuach301/meridian-studio' && github.actor == 'HungQuach301' && github.triggering_actor == 'HungQuach301' && github.event_name == 'push' && github.ref == 'refs/heads/wp/WP-004a-retarget-2e068c4' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Verify provenance, PATCH target once, and read back
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          /usr/bin/python3 - <<'PY'
+          import hashlib,json,os,re,sys,time,urllib.request,urllib.error
+          REPO='HungQuach301/meridian-studio'
+          OWNER='HungQuach301'
+          SOURCE='2e068c42e6c4b45dcabef6d3bc019b990d88a95f'
+          TREE='b0fffa10ab989a03ab54ce01c9d10d6e83e393a7'
+          OLD_TARGET='7f2a966a7340a2d44e3486c947d0795251dac2a3'
+          BRANCH='wp/WP-004a-retarget-2e068c4'
+          WORKFLOW='.github/workflows/wp004a-retarget-release.yml'
+          RELEASE=387547778
+          TAG='wp004a-evidence-7f2a966'
+          BASELINE_HISTORY='6928630413afca1417a7c63c22450619948bbff029bb2a07e22c553d0abf0a32'
+          API='https://api.github.com/repos/'+REPO
+          DEADLINE=time.monotonic()+260
+          patch_attempted=False
+          phase='context'
+          def require(value,code):
+              if not value: raise RuntimeError(code)
+          def digest(value):
+              return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self,*args,**kwargs): return None
+          opener=urllib.request.build_opener(NoRedirect())
+          def api(path,method='GET',data=None):
+              global patch_attempted
+              require(path in ['', '/branches/main', '/releases/'+str(RELEASE),
+                  '/releases/'+str(RELEASE)+'/assets?per_page=100',
+                  '/git/matching-refs/tags/'+TAG]
+                  or re.fullmatch(r'/git/(commits/[0-9a-f]{40}|trees/[0-9a-f]{40}\?recursive=1)',path)
+                  or re.fullmatch(r'/actions/runs(/[1-9][0-9]*|\?per_page=100&page=[1-9][0-9]*)',path),
+                  'UNAPPROVED_API_PATH')
+              if method=='PATCH':
+                  require(not patch_attempted and path=='/releases/'+str(RELEASE)
+                      and data=={'target_commitish':SOURCE},'UNAPPROVED_WRITE')
+                  patch_attempted=True
+                  print(json.dumps({'phase':'patch-attempt','count':1,'releaseId':RELEASE,'target':SOURCE}),flush=True)
+              else: require(method=='GET' and data is None,'UNAPPROVED_METHOD')
+              remaining=DEADLINE-time.monotonic()
+              require(remaining>0,'HELPER_DEADLINE')
+              headers={'Authorization':'Bearer '+os.environ['GITHUB_TOKEN'],
+                  'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}
+              body=None
+              if data is not None:
+                  body=json.dumps(data,separators=(',',':')).encode();headers['Content-Type']='application/json'
+              req=urllib.request.Request(API+path,data=body,headers=headers,method=method)
+              try:
+                  with opener.open(req,timeout=min(20,remaining)) as response:
+                      require(response.status==200,'HTTP_'+str(response.status))
+                      payload=response.read(8*1024*1024+1)
+                      require(len(payload)<=8*1024*1024,'RESPONSE_TOO_LARGE')
+                      return json.loads(payload)
+              except urllib.error.HTTPError as exc:
+                  raise RuntimeError('HTTP_'+str(exc.code)) from None
+          def check_main():
+              repo=api('');require(repo['full_name']==REPO and repo['private'] is True
+                  and repo['default_branch']=='main','REPOSITORY_CHANGED')
+              branch=api('/branches/main')
+              require(branch['commit']['sha']==SOURCE and branch['commit']['commit']['tree']['sha']==TREE,'MAIN_CHANGED')
+          def check_release(target):
+              value=api('/releases/'+str(RELEASE))
+              assets=api('/releases/'+str(RELEASE)+'/assets?per_page=100')
+              require(value['id']==RELEASE and value['tag_name']==TAG
+                  and value['target_commitish']==target and value['draft'] is True
+                  and value['prerelease'] is False and value['published_at'] is None
+                  and value['assets']==[] and assets==[],'DRAFT_CHANGED')
+              require(api('/git/matching-refs/tags/'+TAG)==[],'TAG_REF_CHANGED')
+              return value
+          def read_history():
+              result=[];total=None
+              for page in range(1,11):
+                  data=api('/actions/runs?per_page=100&page='+str(page))
+                  require(type(data['total_count']) is int and 1<=data['total_count']<=1000,'HISTORY_COUNT')
+                  if total is None: total=data['total_count']
+                  batch=data['workflow_runs']
+                  require(data['total_count']==total and isinstance(batch,list)
+                      and len(batch)==min(100,total-len(result)),'HISTORY_INCOMPLETE_OR_CHANGED')
+                  result.extend(batch)
+                  if len(result)==total:
+                      require(len({x['id'] for x in result})==total,'HISTORY_DUPLICATE')
+                      return result
+              raise RuntimeError('HISTORY_INCOMPLETE')
+          try:
+              require(sys.version_info[:3]==(3,12,3),'PYTHON_VERSION')
+              require(os.environ.get('GITHUB_ACTIONS')=='true'
+                  and os.environ.get('GITHUB_REPOSITORY')==REPO
+                  and os.environ.get('GITHUB_ACTOR')==OWNER
+                  and os.environ.get('GITHUB_TRIGGERING_ACTOR')==OWNER
+                  and os.environ.get('GITHUB_EVENT_NAME')=='push'
+                  and os.environ.get('GITHUB_REF')=='refs/heads/'+BRANCH
+                  and os.environ.get('GITHUB_RUN_ATTEMPT')=='1','CONTEXT')
+              head=os.environ['GITHUB_SHA'];run_id=int(os.environ['GITHUB_RUN_ID'])
+              require(re.fullmatch(r'[0-9a-f]{40}',head) and run_id>0,'RUN_IDENTITY')
+              with open(os.environ['GITHUB_EVENT_PATH']) as f: event=json.load(f)
+              require(event['repository']['full_name']==REPO and event['repository']['private'] is True
+                  and event['sender']['login']==OWNER and event['ref']=='refs/heads/'+BRANCH
+                  and event['before']=='0'*40 and event['after']==head and event['created'] is True
+                  and event['deleted'] is False and event['forced'] is False,'NEW_BRANCH_ONLY')
+              phase='source-and-history'
+              check_main()
+              commit=api('/git/commits/'+head)
+              require([p['sha'] for p in commit['parents']]==[SOURCE],'HELPER_PARENT')
+              source=api('/git/trees/'+TREE+'?recursive=1')
+              candidate=api('/git/trees/'+commit['tree']['sha']+'?recursive=1')
+              require(source.get('truncated') is False and candidate.get('truncated') is False,'TREE_TRUNCATED')
+              old={x['path']:(x['mode'],x['type'],x['sha']) for x in source['tree'] if x['type']!='tree'}
+              new={x['path']:(x['mode'],x['type'],x['sha']) for x in candidate['tree'] if x['type']!='tree'}
+              require(len(old)==112 and WORKFLOW not in old and len(new)==113
+                  and set(new)==set(old)|{WORKFLOW} and all(new[p]==old[p] for p in old)
+                  and new[WORKFLOW][:2]==('100644','blob'),'HELPER_SCOPE')
+              run=api('/actions/runs/'+str(run_id))
+              require(run['id']==run_id and run['head_sha']==head and run['head_branch']==BRANCH
+                  and run['event']=='push' and run['path']==WORKFLOW and run['run_attempt']==1
+                  and run['status']=='in_progress' and run['actor']['login']==OWNER
+                  and run['triggering_actor']['login']==OWNER,'RUN_CHANGED')
+              history=read_history()
+              fields=['id','path','event','head_sha','run_attempt','status','conclusion']
+              old_runs=sorted([{k:r[k] for k in fields} for r in history if r['head_sha']!=head],key=lambda r:r['id'])
+              require(len(old_runs)==123 and digest(old_runs)==BASELINE_HISTORY,'BASELINE_HISTORY_CHANGED')
+              own=[r for r in history if r['head_sha']==head]
+              require(1<=len(own)<=3 and len({r['path'] for r in own})==len(own)
+                  and all(r['path'] in [WORKFLOW,'.github/workflows/ci.yml','.github/workflows/hello.yml']
+                      and r['event']=='push' and r['head_branch']==BRANCH and r['run_attempt']==1 for r in own)
+                  and [r['id'] for r in own if r['path']==WORKFLOW]==[run_id],'HELPER_ALREADY_ATTEMPTED')
+              phase='before-patch'
+              before=check_release(OLD_TARGET)
+              check_main()
+              # One write only. A timeout/403/404 never causes a repeat or privilege fallback.
+              phase='patch'
+              patched=api('/releases/'+str(RELEASE),'PATCH',{'target_commitish':SOURCE})
+              require(patched['id']==RELEASE and patched['target_commitish']==SOURCE,'PATCH_RESPONSE')
+              phase='after-patch'
+              after=check_release(SOURCE)
+              keep=['id','node_id','tag_name','name','body','draft','prerelease','published_at','created_at','author']
+              require(all(before.get(k)==after.get(k) for k in keep),'RELEASE_FIELDS_CHANGED')
+              check_main()
+              receipt={'operation':'retarget-existing-draft-only','patchCount':1,'runId':run_id,
+                  'attempt':1,'helperCommit':head,'sourceCommit':SOURCE,'sourceTree':TREE,
+                  'releaseId':RELEASE,'tag':TAG,'beforeTarget':OLD_TARGET,'afterTarget':SOURCE,
+                  'draft':True,'prerelease':False,'publishedAt':None,'assets':[],
+                  'retainedCreationFailure':'RELEASE_COUNT_CHANGED','baselineHistorySha256':BASELINE_HISTORY,
+                  'releaseNameUnchanged':True,'releaseBodySha256':hashlib.sha256((after.get('body') or '').encode()).hexdigest(),
+                  'benchmarkExecuted':False,'browserExecuted':False}
+              print(json.dumps({'retargetReceipt':receipt,'receiptSha256':digest(receipt)},sort_keys=True),flush=True)
+          except Exception as exc:
+              print(json.dumps({'retargetFailed':True,'phase':phase,'patchAttempted':patch_attempted,
+                  'error':str(exc),'retryAllowed':False}),flush=True)
+              sys.exit(1)
+          PY
