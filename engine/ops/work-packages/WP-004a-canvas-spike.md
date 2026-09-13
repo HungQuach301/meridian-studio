@@ -2108,3 +2108,177 @@ và dependency/browser provenance còn thiếu, hai cảnh báo moderate, attemp
 trần $5/job 75 phút và quy tắc không reset ngân sách chuẩn bị. Main và draft
 chưa đổi; authorization cũ chưa chuyển sang source mới. Sau CI, bước tiếp theo
 là review read-only bản sửa tại head/tree mới trước khi xét quyền merge riêng.
+
+## 26. Nghiệm thu riêng phục hồi tag của draft
+
+### 26.1. Quyết định của chủ dự án — 2026-09-13
+
+Chủ dự án đã nghiệm thu trong chat sau review execution. Trích nguyên nội dung
+nghiệm thu và giới hạn liên quan; không tự đặt ID tin nhắn hoặc chữ ký nền tảng:
+
+> Tôi nghiệm thu riêng việc phục hồi tag_name của draft release 387547778 thành wp004a-evidence-7f2a966 qua helper run 34743734728, commit C 00934d5d6b948fba0a42b4c9689ca6950dbddc3c, cùng CI 34743734681 và Hello 34743734658, đều attempt 1.
+>
+> Chấp nhận html_url hậu kiểm có hậu tố untagged-c15f25bc17abf6d8b00f cho lần chạy này; giữ target S, private, draft=true, prerelease=false, published_at=null và assets=[] theo review. Không coi đây là nghiệm thu toàn bộ WP-004a hoặc quyền benchmark.
+
+Biên bản ghi nhận riêng việc phục hồi tag và chấp nhận URL của lần chạy này.
+WP-004a vẫn `todo`; chưa nghiệm thu benchmark, chưa mở WP-005 hoặc Layout Gallery.
+Các mục 1–25, gói nguồn, REPORT và log cũ giữ nguyên trạng thái tại thời điểm lập.
+Quyết định nghiệm thu mới được nối tại đây, không sửa ngược cờ chờ nghiệm thu
+trong hồ sơ execution/review trước đó.
+
+### 26.2. Checkpoint và phạm vi helper đã thực hiện
+
+Repository duy nhất: `HungQuach301/meridian-studio`, private=true.
+Đối soát trước chuẩn bị biên bản ngày 2026-09-13T08:20:42.339Z khớp toàn bộ draft,
+17 nhánh và 129 run/0 Canvas trong gói review. Đây là nhiều GET normalized,
+không phải snapshot nguyên tử hoặc biên nhận HTTP gốc của connector.
+
+| Mốc | Giá trị |
+|---|---|
+| Main S | `2e068c42e6c4b45dcabef6d3bc019b990d88a95f` |
+| Main tree T | `b0fffa10ab989a03ab54ce01c9d10d6e83e393a7` |
+| Nhánh helper | `wp/WP-004a-retarget-2e068c4` |
+| Commit helper C | `00934d5d6b948fba0a42b4c9689ca6950dbddc3c` |
+| Tree helper CT | `a3b8c06273b077ec9e00e7b712a0ab894460ecce` |
+| Parent duy nhất H của C | `7d66b8bb26de1f65d444de224b8068dab964d54d` |
+
+C trong mục 26 là commit helper phục hồi tag. C tại mục 25.3 mô tả commit lệnh
+benchmark tương lai; không dùng commit helper làm source hoặc lệnh benchmark.
+
+[Commit C](https://github.com/HungQuach301/meridian-studio/commit/00934d5d6b948fba0a42b4c9689ca6950dbddc3c)
+có đúng một parent H; H có đúng một parent S. Một lần cập nhật không force nhánh
+helper H→C đã phát sinh push thật. Diff C so H chỉ một file
+`.github/workflows/wp004a-retarget-release.yml`, +1340/−150, mode 100644,
+84168 byte; SHA-256 `663129510ec0ec954229f9bfdc39ec8f6ebaf1440c341b1d581bd278932a7ff3`,
+blob `bacf40f6e72536ea5616f72854bdf4c747369792`.
+Execution bảo toàn đủ 112 blob/mode của main, gồm dependency, lockfile, state và
+contracts; helper chưa merge vào main.
+
+### 26.3. Ba run, PATCH và receipt đã review
+
+| Workflow | Run | Kết quả |
+|---|---|---|
+| Helper | [34743734728](https://github.com/HungQuach301/meridian-studio/actions/runs/34743734728) | success, attempt 1 |
+| CI | [34743734681](https://github.com/HungQuach301/meridian-studio/actions/runs/34743734681) | success, attempt 1 |
+| Hello | [34743734658](https://github.com/HungQuach301/meridian-studio/actions/runs/34743734658) | success, attempt 1 |
+
+Cả ba run có head C, event push và đúng nhánh helper; actor/triggering_actor đều
+HungQuach301. Năm job thực chạy success; Hello heartbeat/send-hello skipped.
+CI/Hello chạy song song và helper không chờ chúng trước PATCH, đúng phạm vi
+execution đã duyệt. CI/Hello cũ của H hoặc S không chứng nhận C.
+
+Helper đã thực hiện operation `wp004a-repair-tag-387547778-01`, ghi đúng một
+patchAttempt trước transport và nhận PATCH HTTP 200. Payload canonical UTF-8
+132 byte, đúng bốn trường:
+
+```json
+{"draft":true,"prerelease":false,"tag_name":"wp004a-evidence-7f2a966","target_commitish":"2e068c42e6c4b45dcabef6d3bc019b990d88a95f"}
+```
+
+Payload SHA-256: `3c5144331add64938e1040d5102d5da34a42bce49e0b86f30b37cf807f76027c`.
+Năm response đã review: GET release trước (2818 byte), GET assets trước (2 byte),
+PATCH release (2812 byte), GET release sau (2812 byte), GET assets sau (2 byte).
+Cả năm HTTP 200, đủ begin/chunk/end và byte/hash, Content-Length khớp;
+response PATCH và GET release sau giống nguyên byte. Tổng 38 predicates đạt:
+13 trước PATCH, 12 từ response PATCH, 13 sau PATCH.
+
+Có một tagRepairReceipt; canonical SHA-256 của nội dung receipt là
+`e636b7975bb197cb847a6b09babbbeea41c0b40f698e011cab2c2baa9dbfb0c9`.
+Digest này không phải SHA-256 của file JSON bọc receipt. Review đã đối chiếu
+C/CT/S/T/H, release, tag trước/sau, target, patchCount=1, attempt=1, payload,
+name/body hash, lịch sử và cờ không browser/benchmark. Receipt do helper sinh,
+không phải chữ ký server độc lập hoặc audit mọi hoạt động ngoài run đó.
+
+Log execution ghi bốn bước ghép source và kiểm hash đạt, Python 3.12.3,
+49 hồi quy synthetic đạt trước live API. Review và lượt chuẩn bị tài liệu này
+không chạy thêm helper, hồi quy hoặc fixture. Năm response thật dùng
+Content-Length; framing 64 KiB, partial/EOF/chunked và các đường 403/timeout
+vẫn là bằng chứng offline đã lưu, không phải lỗi mạng đã thử trên GitHub.
+
+### 26.4. Draft và html_url đã được chấp nhận riêng
+
+| Trường | Trạng thái được nghiệm thu |
+|---|---|
+| Release ID | `387547778` |
+| tag_name trước | `untagged-b3f7146405b5c9f50ebf` |
+| tag_name sau | `wp004a-evidence-7f2a966` |
+| target_commitish | Đúng S trong mục 26.2 |
+| Repository | private=true |
+| draft / prerelease | true / false |
+| published_at | null |
+| Assets | `[]` ở release và endpoint assets |
+| updated_at sau PATCH | `2026-09-13T06:50:39Z` |
+| html_url sau PATCH | [untagged-c15f25bc17abf6d8b00f](https://github.com/HungQuach301/meridian-studio/releases/tag/untagged-c15f25bc17abf6d8b00f) |
+
+Toàn bộ JSON release chỉ đổi tag_name, updated_at và html_url qua PATCH.
+html_url trước có hậu tố `untagged-b3f7146405b5c9f50ebf`; URL sau xuất hiện
+trong chính response PATCH và GET hậu kiểm, không do agent chọn nguồn khác.
+Payload không chứa html_url; trường này không nằm trong PRESERVE của helper.
+Chủ dự án đã chấp nhận URL hậu kiểm cho đúng lần chạy này; không suy thành
+cam kết ổn định của slug untagged-* hoặc quyền PATCH thêm để đổi URL.
+
+Cùng id/node_id/API URL, target S, name/body/author/created_at và toàn bộ trường
+PRESERVE được giữ. Body lịch sử ghi nguồn 7f2a966 vẫn nguyên vẹn. Matching-refs
+của tag cũ và tag cần phục hồi đều rỗng; phục hồi tag_name không đồng nghĩa đã
+tạo/push Git tag hoặc publish release. Chưa kiểm điều hướng URL bằng browser.
+
+### 26.5. Lịch sử và gói bằng chứng nguyên byte
+
+17 nhánh giữ nguyên tập tên; execution chỉ đổi đầu nhánh helper H→C. Lịch sử
+đủ 129 run trên hai trang 100+29, không trùng ID và 0 Canvas. Loại đúng ba run
+ở mục 26.3, 126 run cũ khớp từng bộ
+`id/path/event/head_sha/run_attempt/status/conclusion`.
+Hash canonical dùng JSON sort key, không khoảng trắng, UTF-8, sắp theo ID tăng:
+
+- Baseline 126: `24aa060502cff0c10a2d5f689c29b536704d7f18043df27d5539640bccd72b28`.
+- Hậu execution 129: `5292aa300af14df82c2f2a9f5544b011d334768bc29188693f76d57e3f5794ba`.
+
+[Run 34703610757](https://github.com/HungQuach301/meridian-studio/actions/runs/34703610757)
+giữ failure `DRAFT_CHANGED`;
+[run 34690874856](https://github.com/HungQuach301/meridian-studio/actions/runs/34690874856)
+giữ failure `RELEASE_COUNT_CHANGED`; cả hai attempt 1. Tên lỗi lấy từ log thật
+đã giữ trong review, không suy từ receipt mới hoặc đổi failure thành success.
+Response HTTP gốc còn thiếu của hai failure vẫn thiếu.
+
+| Gói | Byte | SHA-256 |
+|---|---:|---|
+| Meridian-WP004a-CHUNKED-execution-00934d5.zip | 1750457 | `c8b0ed03928d037dd270d36dc57841c621d817dd93f252976af23d59e3810568` |
+| Meridian-WP004a-CHUNKED-execution-readonly-review-00934d5.zip | 1970205 | `9adccdb878988c714cfa7dc828c26e3b72b62c27b12cb75fdaa9cb1fc741cefc` |
+
+Đã đọc MANIFEST, REPORT, evidence và kiểm byte/hash thực tế, CRC, 39 member
+execution cùng 17 member review, không tính chính MANIFEST. Các ZIP nguồn
+lồng bên trong và log cũ giữ nguyên. Không dựng gói hoặc phản hồi từ tóm tắt.
+Log là chuỗi decoded UTF-8 thực nhận; body .bin giải mã từ chunk log thực nhận,
+không phải archive log nhị phân gốc, toàn bộ HTTP/TLS wire hoặc file RUNNER_TEMP
+tải trực tiếp. Header chỉ là allowlist đã được helper ghi. Raw GITHUB_EVENT_PATH
+chưa có trong gói; không dựng lại event. Không xác nhận retention chưa kiểm.
+
+### 26.6. Giới hạn và bước tiếp theo
+
+- Hai moderate Vitest/@vitest/mocker 3.2.7, GHSA-82fw-gwwq-j7x9 giữ nguyên;
+  chưa audit lại, nâng dependency hoặc coi run xanh là hết lỗ hổng.
+- 144/228 metadata npm gốc, cache/tarball/log gốc và phần response lịch sử thiếu
+  tại mục 22.2/25.5 cùng REPORT vẫn thiếu. Không GET lại metadata npm, repack
+  hoặc dựng response còn thiếu; năm response mới không thay vật chứng cũ.
+- Browser ZIP/publisher digest/signature/HTTP receipt chưa đầy đủ theo hồ sơ.
+  Chưa có Chromium, video, RAM/render, hiệu năng hoặc nghiệm thu hình ảnh.
+  Hồi quy/fixture và prerequisite trên Node tổng hợp không chứng minh Chromium.
+- Giữ slot `wp004a-7f2a966-01`, attempt 1, trần benchmark $5/job 75 phút,
+  các pin và gate mục 24–25. Phục hồi tag và ghi biên bản không chuyển quyền
+  benchmark hoặc cho phép retry/rerun, fallback, tăng quyền hay tạo slot mới.
+- Giữ sổ chuẩn bị: 381 phút 05 giây tại mốc lịch sử đã ghi, 5 phút 49 giây
+  đóng gói riêng và chênh lệch 453 phút 11 giây chưa giải thích. Không hỏi lại
+  thời gian, đặt lại ngân sách hoặc dùng timestamp readback để lấp chênh lệch.
+  Dự toán helper/CI/Hello trong REPORT vẫn là ước tính; quota, cache và billing
+  thực tế chưa được xác minh, không đổi settings hoặc chuyển thành ngân sách mới.
+
+Biên bản được chuẩn bị offline từ S, chỉ nối mục 26 của file này và bổ sung ô
+trạng thái WP-004a trong backlog, vẫn giữ todo. Không tạo Git object/commit,
+push, merge, PATCH, dispatch/rerun, chạy thêm test, browser hoặc benchmark.
+
+Bước tiếp theo là review read-only diff/byte/hash của hai tài liệu, kiểm nguyên
+byte toàn bộ phần WP cũ và các ô/dòng backlog khác, đối soát lại S/T/C/CT,
+draft, 17 nhánh và 129 run/0 Canvas; khác thì dừng. Sau review mới trình phương án
+commit/PR riêng trước thao tác ghi GitHub. Nếu sau này merge tài liệu vào main,
+S/T sẽ đổi; việc đó không tự đổi target draft hoặc chuyển authorization benchmark.
+Chủ dự án duyệt trong chat; agent tự lấy gói đã lưu và thực hiện phần được duyệt.
