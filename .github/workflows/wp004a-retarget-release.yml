@@ -1,7 +1,7 @@
-name: WP-004a retarget existing draft (one owner approval)
+name: WP-004a repair approved draft tag (separate owner approval)
 
-# PROPOSAL ONLY. Creating the branch below is an execution action and requires
-# the owner's approval in chat. Do not merge this workflow into main.
+# OFFLINE CANDIDATE. A push to this existing helper branch executes a real write.
+# Require a separate owner approval before committing/pushing. Never merge to main.
 on:
   push:
     branches: ['wp/WP-004a-retarget-2e068c4']
@@ -21,156 +21,1346 @@ jobs:
       contents: write
       actions: read
     steps:
-      - name: Verify provenance, PATCH target once, and read back
+      - name: Stage pinned helper source part 1 of 4
+        shell: bash
+        run: |
+          umask 077
+          set -o noclobber
+          cat > "$RUNNER_TEMP/wp004a-tag-repair-program.py" <<'WP004A_SOURCE_PART_1'
+          import base64
+          import copy
+          import hashlib
+          import http.client
+          import io
+          import json
+          import os
+          import re
+          import sys
+          import tempfile
+          import time
+          import unittest
+          import urllib.error
+          import urllib.request
+          from dataclasses import dataclass
+          from pathlib import Path
+          from unittest.mock import patch
+          
+          REPO = 'HungQuach301/meridian-studio'
+          OWNER = 'HungQuach301'
+          SOURCE = '2e068c42e6c4b45dcabef6d3bc019b990d88a95f'
+          TREE = 'b0fffa10ab989a03ab54ce01c9d10d6e83e393a7'
+          PREVIOUS = '7d66b8bb26de1f65d444de224b8068dab964d54d'
+          PREVIOUS_TREE = '492d35b901c61a44c078915d59e0f95cdfa89c7e'
+          PREVIOUS_BLOB = 'a5a86ee30b223892e2c79f6b46f939495706aa72'
+          BRANCH = 'wp/WP-004a-retarget-2e068c4'
+          BRANCH_PATH = '/branches/wp%2FWP-004a-retarget-2e068c4'
+          WORKFLOW = '.github/workflows/wp004a-retarget-release.yml'
+          OPERATION = 'wp004a-repair-tag-387547778-01'
+          RELEASE = 387547778
+          RELEASE_PATH = '/releases/' + str(RELEASE)
+          ASSETS_PATH = RELEASE_PATH + '/assets?per_page=100'
+          TAG_BEFORE = 'untagged-b3f7146405b5c9f50ebf'
+          TAG_AFTER = 'wp004a-evidence-7f2a966'
+          NAME_SHA = '05aed9c29d63a3cf0e84dffdd56eeadd78333ab3f4f57f28c9eb3c5ac986659f'
+          BODY_SHA = '867e8f4b25f34c5d186ff8b71ca417cb424e857acb03a0a952c3eff5ccb7f0c2'
+          BASELINE_HISTORY = '24aa060502cff0c10a2d5f689c29b536704d7f18043df27d5539640bccd72b28'
+          HISTORY_FIELDS = ('id', 'path', 'event', 'head_sha', 'run_attempt', 'status', 'conclusion')
+          PATCH_BODY = {'tag_name': TAG_AFTER, 'target_commitish': SOURCE,
+                        'draft': True, 'prerelease': False}
+          API_ROOT = 'https://api.github.com/repos/' + REPO
+          API_VERSION = '2022-11-28'
+          RELEASE_LIMIT = 1024 * 1024
+          OTHER_LIMIT = 8 * 1024 * 1024
+          CHUNK_SIZE = 4096
+          PRESERVE = ('id', 'node_id', 'name', 'body', 'author', 'created_at',
+                      'target_commitish', 'draft', 'prerelease', 'published_at')
+          
+          class Stop(RuntimeError):
+              pass
+          
+          def require(condition, code):
+              if not condition:
+                  raise Stop(code)
+          
+          def canonical(value):
+              return json.dumps(value, sort_keys=True, separators=(',', ':'),
+                                ensure_ascii=False, allow_nan=False).encode('utf-8')
+          
+          def sha256(value):
+              return hashlib.sha256(value).hexdigest()
+          
+          def digest(value):
+              return sha256(canonical(value))
+          
+          def emit(value):
+              print(json.dumps(value, ensure_ascii=False, sort_keys=True), flush=True)
+          
+          def is_sha(value):
+              return type(value) is str and re.fullmatch(r'[0-9a-f]{40}', value) is not None
+          
+          def is_positive_int(value):
+              return type(value) is int and value > 0
+          
+          def runtime_guard(version):
+              require(tuple(version[:3]) == (3, 12, 3), 'PYTHON_VERSION')
+          
+          @dataclass(frozen=True)
+          class Context:
+              head: str
+              run_id: int
+          
+          def context_guard(env, event):
+              expected = {'GITHUB_ACTIONS': 'true', 'GITHUB_REPOSITORY': REPO,
+                          'GITHUB_ACTOR': OWNER, 'GITHUB_TRIGGERING_ACTOR': OWNER,
+                          'GITHUB_EVENT_NAME': 'push', 'GITHUB_REF': 'refs/heads/' + BRANCH,
+                          'GITHUB_RUN_ATTEMPT': '1'}
+              require(all(env.get(k) == v for k, v in expected.items()), 'CONTEXT')
+              head = env.get('GITHUB_SHA')
+              run_text = env.get('GITHUB_RUN_ID', '')
+              require(is_sha(head) and type(run_text) is str
+                      and re.fullmatch(r'[1-9][0-9]*', run_text), 'RUN_IDENTITY')
+              require(type(event) is dict and type(event.get('repository')) is dict
+                      and type(event.get('sender')) is dict, 'EVENT_SCHEMA')
+              require(event['repository'].get('full_name') == REPO
+                      and event['repository'].get('private') is True
+                      and event['sender'].get('login') == OWNER
+                      and event.get('ref') == 'refs/heads/' + BRANCH
+                      and event.get('before') == PREVIOUS and event.get('after') == head
+                      and event.get('created') is False and event.get('deleted') is False
+                      and event.get('forced') is False, 'EXISTING_BRANCH_PUSH_CHANGED')
+              return Context(head, int(run_text))
+          
+          @dataclass
+          class RawResponse:
+              status: object
+              body: object
+              headers: dict
+              complete: bool = True
+              error: object = None
+          
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, *args, **kwargs):
+                  return None
+          
+          class StrictChunkedReader:
+              # Read the stdlib response's buffered body stream, before chunk decoding.
+              # read1 returns available body bytes before a later EOF/timeout can discard them.
+              def __init__(self, stream):
+                  self.stream = stream
+                  self.remaining = 0
+                  self.need_crlf = False
+                  self.complete = False
+                  self.framing_bytes = 0
+          
+              def framing(self, value):
+                  self.framing_bytes += len(value)
+                  if self.framing_bytes > 65536:
+                      raise http.client.IncompleteRead(b'')
+                  return value
+          
+              def line(self):
+                  value = self.framing(self.stream.readline(65537))
+                  if not value.endswith(b'\r\n') or b'\r' in value[:-2]:
+                      raise http.client.IncompleteRead(b'')
+                  return value[:-2]
+          
+              def read(self, amount):
+                  if self.complete:
+                      return b''
+                  if self.remaining == 0:
+                      if self.need_crlf:
+                          if self.framing(self.stream.read(2)) != b'\r\n':
+                              raise http.client.IncompleteRead(b'')
+                      size = self.line().split(b';', 1)[0].rstrip(b' \t')
+                      if re.fullmatch(b'[0-9a-fA-F]+', size) is None:
+                          raise http.client.IncompleteRead(b'')
+                      # Hex conversion is bounded by the aggregate 64 KiB framing limit.
+                      self.remaining = int(size, 16)
+                      if self.remaining == 0:
+                          while self.line():
+                              pass  # Trailer fields are ignored, but their terminating line is required.
+                          self.complete = True
+                          return b''
+                      self.need_crlf = True
+                  value = self.stream.read1(min(amount, self.remaining))
+                  if not value:
+                      raise http.client.IncompleteRead(b'')
+                  self.remaining -= len(value)
+                  return value
+          
+          
+          class HTTPTransport:
+              def __init__(self, token):
+                  require(type(token) is str and bool(token), 'TOKEN_MISSING')
+                  self.token = token
+                  self.opener = urllib.request.build_opener(NoRedirect())
+          
+              def send(self, method, path, body, timeout, limit):
+                  headers = {'Authorization': 'Bearer ' + self.token,
+                             'Accept': 'application/vnd.github+json',
+                             'X-GitHub-Api-Version': API_VERSION}
+                  if body is not None:
+                      headers['Content-Type'] = 'application/json'
+                  request = urllib.request.Request(API_ROOT + path, data=body,
+                                                   headers=headers, method=method)
+                  try:
+                      try:
+                          response = self.opener.open(request, timeout=timeout)
+                      except urllib.error.HTTPError as error:
+                          response = error
+                      with response:
+                          status = response.code
+                          response_headers = {k.lower(): v for k, v in response.headers.items()}
+                          length_values = [v for k, v in response.headers.items()
+                                           if k.lower() == 'content-length']
+                          if length_values:
+                              # Retain all declared lengths in the evidence header.
+                              response_headers['content-length'] = ', '.join(length_values)
+                          transfer_values = [v for k, v in response.headers.items()
+                                             if k.lower() == 'transfer-encoding']
+                          codings = [v.strip().lower() for field in transfer_values for v in field.split(',')]
+                          if transfer_values:
+                              response_headers['transfer-encoding'] = ', '.join(transfer_values)
+                          chunks = []
+                          captured = 0
+                          try:
+                              # HTTPError wraps the original response in fp; do not bypass error capture.
+                              underlying = response.fp if isinstance(response, urllib.error.HTTPError) else response
+                              # Honor valid OWS/case even when the stdlib chunked flag is false.
+                              framed = codings == ['chunked'] or getattr(underlying, 'chunked', False) is True
+                              reader = (StrictChunkedReader(underlying.fp)
+                                        if framed and isinstance(underlying, http.client.HTTPResponse) else response)
+                              while captured <= limit:
+                                  chunk = reader.read(min(65536, limit + 1 - captured))
+                                  if not chunk:
+                                      break
+                                  chunks.append(chunk)
+                                  captured += len(chunk)
+                          except Exception as error:
+                              partial = getattr(error, 'partial', b'')
+                              if isinstance(partial, bytes):
+                                  chunks.append(partial[:max(0, limit + 1 - captured)])
+                              return RawResponse(status, b''.join(chunks), response_headers,
+                                                 False, 'RESPONSE_READ_ERROR')
+                          payload = b''.join(chunks)
+                          if len(payload) > limit:
+                              return RawResponse(status, payload, response_headers,
+                                                 False, 'RESPONSE_TOO_LARGE')
+                          if transfer_values and (codings != ['chunked']
+                                                  or not isinstance(underlying, http.client.HTTPResponse)):
+                              return RawResponse(status, payload, response_headers,
+                                                 False, 'RESPONSE_TRANSFER_ENCODING_UNSUPPORTED')
+                          if length_values:
+                              lengths = [v.strip() for field in length_values for v in field.split(',')]
+                              if any(re.fullmatch(r'[0-9]+', v) is None for v in lengths):
+                                  return RawResponse(status, payload, response_headers,
+                                                     False, 'RESPONSE_CONTENT_LENGTH_INVALID')
+                              # Compare decimal strings without an unbounded integer conversion.
+                              declared = {v.lstrip('0') or '0' for v in lengths}
+                              if len(declared) != 1:
+                                  return RawResponse(status, payload, response_headers,
+                                                     False, 'RESPONSE_CONTENT_LENGTH_INVALID')
+                              if str(len(payload)) not in declared:
+                                  # HTTPResponse.read(amount) can return EOF without raising
+                                  # IncompleteRead when Content-Length has not been satisfied.
+                                  return RawResponse(status, payload, response_headers,
+                                                     False, 'RESPONSE_CONTENT_LENGTH_MISMATCH')
+                          return RawResponse(status, payload, response_headers)
+                  except Exception:
+                      # Do not print exception text that might contain request details.
+                      return RawResponse(None, None, {}, False, 'TRANSPORT_NO_RESPONSE')
+          
+          class Evidence:
+              def __init__(self, sink=emit, directory=None, forbidden=()):
+                  self.sink = sink
+                  self.directory = directory
+                  self.forbidden = tuple(x for x in forbidden if x)
+                  self.sequence = 0
+          
+              def capture(self, method, path, phase, response, limit):
+                  self.sequence += 1
+                  payload = response.body
+                  require(payload is None or type(payload) is bytes, 'RESPONSE_BODY_TYPE')
+                  complete = (payload is not None and response.complete is True
+                              and len(payload) <= limit)
+                  captured = None if payload is None else payload[:limit]
+                  withheld = captured is not None and any(x in captured for x in self.forbidden)
+                  selected = {k.lower(): v for k, v in response.headers.items()
+                              if k.lower() in ('date', 'etag', 'x-github-request-id',
+                                               'content-length', 'transfer-encoding')}
+                  meta = {'sequence': self.sequence, 'phase': phase, 'method': method,
+                          'path': path, 'observedAtUtc': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                          'status': response.status, 'headers': selected,
+                          'responseComplete': complete, 'missingResponse': payload is None,
+                          'truncatedOrReadIncomplete': payload is not None and not complete,
+                          'bytesCaptured': None if captured is None else len(captured),
+                          'sha256Captured': None if captured is None else sha256(captured),
+                          'fullResponseSha256': sha256(payload) if complete else None,
+                          'withheldSensitive': withheld, 'error': response.error}
+                  encoded = '' if captured is None or withheld else base64.b64encode(captured).decode('ascii')
+                  chunks = [encoded[i:i + CHUNK_SIZE] for i in range(0, len(encoded), CHUNK_SIZE)]
+                  meta['chunkCount'] = len(chunks)
+                  if self.directory is not None:
+                      stem = self.directory / ('response-%04d' % self.sequence)
+                      if captured is not None and not withheld:
+                          stem.with_suffix('.bin').write_bytes(captured)
+                      stem.with_suffix('.json').write_bytes(canonical(meta) + b'\n')
+                  self.sink({'responseBegin': meta})
+                  for index, chunk in enumerate(chunks):
+                      self.sink({'responseChunk': {'sequence': self.sequence,
+                                                  'index': index + 1, 'count': len(chunks),
+                                                  'base64': chunk}})
+                  self.sink({'responseEnd': {'sequence': self.sequence,
+                                            'chunkCount': len(chunks),
+                                            'sha256Captured': meta['sha256Captured']}})
+                  require(not withheld, 'SENSITIVE_RESPONSE_WITHHELD')
+          
+          class API:
+              def __init__(self, transport, evidence, deadline=None, clock=time.monotonic):
+                  self.transport = transport
+                  self.evidence = evidence
+                  self.clock = clock
+                  self.deadline = clock() + 260 if deadline is None else deadline
+                  self.patch_attempts = 0
+                  self.phase = 'context'
+          
+              def request(self, path, method='GET', data=None):
+                  fixed = ('', '/branches/main', BRANCH_PATH, RELEASE_PATH, ASSETS_PATH,
+                           '/git/matching-refs/tags/' + TAG_BEFORE,
+                           '/git/matching-refs/tags/' + TAG_AFTER)
+                  allowed = (path in fixed or re.fullmatch(
+                      r'/git/(commits/[0-9a-f]{40}|trees/[0-9a-f]{40}\?recursive=1)', path)
+                      or re.fullmatch(r'/actions/runs(/[1-9][0-9]*|\?per_page=100&page=[1-9][0-9]*)', path))
+                  require(allowed, 'UNAPPROVED_API_PATH')
+                  if method == 'PATCH':
+                      require(path == RELEASE_PATH and type(data) is dict
+                              and canonical(data) == canonical(PATCH_BODY)
+                              and self.patch_attempts == 0, 'UNAPPROVED_WRITE')
+                  else:
+                      require(method == 'GET' and data is None, 'UNAPPROVED_METHOD')
+                  remaining = self.deadline - self.clock()
+                  require(remaining > 0, 'HELPER_DEADLINE')
+                  body = None if data is None else canonical(data)
+                  limit = RELEASE_LIMIT if path in (RELEASE_PATH, ASSETS_PATH) else OTHER_LIMIT
+                  if method == 'PATCH':
+                      self.patch_attempts += 1
+                      self.evidence.sink({'patchAttempt': {'count': self.patch_attempts,
+                          'operation': OPERATION, 'releaseId': RELEASE,
+                          'payloadBytes': len(body), 'payloadSha256': sha256(body)}})
+                  response = self.transport.send(method, path, body, min(20, remaining), limit)
+                  recorded = False
+                  if path in (RELEASE_PATH, ASSETS_PATH) or response.status != 200 or not response.complete:
+                      self.evidence.capture(method, path, self.phase, response, limit)
+                      recorded = True
+                  require(response.status is not None, 'TRANSPORT_OUTCOME_UNKNOWN' if method == 'PATCH'
+                          else 'TRANSPORT_NO_RESPONSE')
+                  require(response.status == 200, 'HTTP_' + str(response.status))
+                  require(type(response.body) is bytes and response.complete is True
+                          and len(response.body) <= limit, response.error or 'RESPONSE_INCOMPLETE')
+                  try:
+                      return json.loads(response.body.decode('utf-8'))
+                  except (ValueError, UnicodeError):
+                      if not recorded:
+                          self.evidence.capture(method, path, self.phase, response, limit)
+                      raise Stop('JSON_INVALID') from None
+          
+          def check_main(api, context):
+              repo = api.request('')
+              require(repo['full_name'] == REPO and repo['private'] is True
+                      and repo['default_branch'] == 'main', 'REPOSITORY_CHANGED')
+              main = api.request('/branches/main')
+              require(main['commit']['sha'] == SOURCE
+                      and main['commit']['commit']['tree']['sha'] == TREE, 'MAIN_CHANGED')
+              current = api.request(BRANCH_PATH)
+              require(current['commit']['sha'] == context.head, 'HELPER_BRANCH_CHANGED')
+          
+          def tree_map(value, expected_sha):
+              require(value.get('sha') == expected_sha and value.get('truncated') is False
+                      and type(value.get('tree')) is list, 'TREE_TRUNCATED_OR_CHANGED')
+              result = {}
+              for entry in value['tree']:
+                  if entry.get('type') == 'tree':
+                      continue
+                  path = entry['path']
+                  require(type(path) is str and path not in result and is_sha(entry['sha']), 'TREE_ENTRY')
+                  result[path] = (entry['mode'], entry['type'], entry['sha'])
+              return result
+          
+          def check_source(api, context):
+              check_main(api, context)
+              previous = api.request('/git/commits/' + PREVIOUS)
+              current = api.request('/git/commits/' + context.head)
+              require(previous['sha'] == PREVIOUS and previous['tree']['sha'] == PREVIOUS_TREE
+                      and [p['sha'] for p in previous['parents']] == [SOURCE], 'PREVIOUS_HELPER_CHANGED')
+              require(current['sha'] == context.head and is_sha(current['tree']['sha'])
+                      and [p['sha'] for p in current['parents']] == [PREVIOUS], 'HELPER_PARENT')
+              source = tree_map(api.request('/git/trees/' + TREE + '?recursive=1'), TREE)
+              old = tree_map(api.request('/git/trees/' + PREVIOUS_TREE + '?recursive=1'), PREVIOUS_TREE)
+              candidate_tree = current['tree']['sha']
+              new = tree_map(api.request('/git/trees/' + candidate_tree + '?recursive=1'), candidate_tree)
+              require(len(source) == 112 and WORKFLOW not in source
+                      and len(old) == len(new) == 113 and set(old) == set(source) | {WORKFLOW}
+                      and set(new) == set(old) and all(old[p] == new[p] == source[p] for p in source)
+                      and old[WORKFLOW] == ('100644', 'blob', PREVIOUS_BLOB)
+                      and new[WORKFLOW][:2] == ('100644', 'blob')
+                      and new[WORKFLOW][2] != PREVIOUS_BLOB, 'HELPER_SCOPE')
+              return candidate_tree
+          
+          def read_history(api):
+              result = []
+              total = None
+              for page in range(1, 11):
+                  value = api.request('/actions/runs?per_page=100&page=' + str(page))
+                  require(type(value.get('total_count')) is int
+                          and 1 <= value['total_count'] <= 1000, 'HISTORY_COUNT')
+                  if total is None:
+                      total = value['total_count']
+                  batch = value.get('workflow_runs')
+                  require(value['total_count'] == total and type(batch) is list
+          WP004A_SOURCE_PART_1
+
+      - name: Stage pinned helper source part 2 of 4
+        shell: bash
+        run: |
+          test -f "$RUNNER_TEMP/wp004a-tag-repair-program.py"
+          test ! -L "$RUNNER_TEMP/wp004a-tag-repair-program.py"
+          cat >> "$RUNNER_TEMP/wp004a-tag-repair-program.py" <<'WP004A_SOURCE_PART_2'
+                          and len(batch) == min(100, total - len(result)), 'HISTORY_INCOMPLETE_OR_CHANGED')
+                  result.extend(batch)
+                  if len(result) == total:
+                      require(all(is_positive_int(r.get('id')) for r in result)
+                              and len({r['id'] for r in result}) == total, 'HISTORY_DUPLICATE_OR_ID')
+                      return result
+              raise Stop('HISTORY_INCOMPLETE')
+          
+          def check_history(api, context):
+              run = api.request('/actions/runs/' + str(context.run_id))
+              require(run['id'] == context.run_id and run['head_sha'] == context.head
+                      and run['head_branch'] == BRANCH and run['event'] == 'push'
+                      and run['path'] == WORKFLOW and type(run['run_attempt']) is int
+                      and run['run_attempt'] == 1 and run['status'] == 'in_progress'
+                      and run['actor']['login'] == OWNER and run['triggering_actor']['login'] == OWNER,
+                      'RUN_CHANGED')
+              history = read_history(api)
+              old = sorted([{k: r[k] for k in HISTORY_FIELDS} for r in history
+                            if r['head_sha'] != context.head], key=lambda r: r['id'])
+              require(len(old) == 126 and digest(old) == BASELINE_HISTORY, 'BASELINE_HISTORY_CHANGED')
+              own = [r for r in history if r['head_sha'] == context.head]
+              require(1 <= len(own) <= 3 and len({r['path'] for r in own}) == len(own)
+                      and all(r['path'] in (WORKFLOW, '.github/workflows/ci.yml', '.github/workflows/hello.yml')
+                              and r['event'] == 'push' and r['head_branch'] == BRANCH
+                              and type(r['run_attempt']) is int and r['run_attempt'] == 1 for r in own)
+                      and [r['id'] for r in own if r['path'] == WORKFLOW] == [context.run_id],
+                      'REPAIR_ALREADY_ATTEMPTED_OR_UNEXPECTED_RUN')
+              return len(history)
+          
+          def release_predicates(value, tag):
+              require(type(value) is dict, 'RELEASE_SCHEMA')
+              rows = []
+              def add(field, expected, code, valid_type):
+                  present = field in value
+                  actual = value.get(field)
+                  rows.append({'field': field, 'present': present, 'expected': expected,
+                               'observed': actual, 'observedType': type(actual).__name__,
+                               'pass': present and valid_type(actual) and actual == expected, 'code': code})
+              add('id', RELEASE, 'RELEASE_ID_MISMATCH', lambda x: type(x) is int)
+              add('tag_name', tag, 'RELEASE_TAG_MISMATCH', lambda x: type(x) is str)
+              add('target_commitish', SOURCE, 'RELEASE_TARGET_MISMATCH', lambda x: type(x) is str)
+              add('draft', True, 'DRAFT_FLAG_MISMATCH', lambda x: type(x) is bool)
+              add('prerelease', False, 'PRERELEASE_FLAG_MISMATCH', lambda x: type(x) is bool)
+              add('published_at', None, 'PUBLISHED_AT_MISMATCH', lambda x: x is None)
+              add('assets', [], 'RELEASE_ASSETS_NOT_EMPTY', lambda x: type(x) is list)
+              for key, expected_hash, code in (('name', NAME_SHA, 'RELEASE_NAME_CHANGED'),
+                                                ('body', BODY_SHA, 'RELEASE_BODY_CHANGED')):
+                  actual = value.get(key)
+                  actual_hash = sha256(actual.encode('utf-8')) if type(actual) is str else None
+                  rows.append({'field': key, 'expectedSha256': expected_hash,
+                               'observedSha256': actual_hash, 'observedType': type(actual).__name__,
+                               'pass': actual_hash == expected_hash, 'code': code})
+              for key, expected_type in (('node_id', str), ('created_at', str), ('author', dict)):
+                  rows.append({'field': key, 'present': key in value,
+                               'observedType': type(value.get(key)).__name__,
+                               'pass': key in value and type(value[key]) is expected_type,
+                               'code': 'RELEASE_PRESERVE_FIELD_MISSING_OR_TYPE'})
+              return rows
+          
+          def validate_release(api, value, tag, assets=None, with_assets=False):
+              rows = release_predicates(value, tag)
+              if with_assets:
+                  rows.append({'field': 'assetsEndpoint', 'expected': [], 'observed': assets,
+                               'observedType': type(assets).__name__,
+                               'pass': type(assets) is list and assets == [], 'code': 'ASSET_ENDPOINT_NOT_EMPTY'})
+              api.evidence.sink({'releasePredicates': {'phase': api.phase, 'checks': rows}})
+              failed = [r['code'] for r in rows if not r['pass']]
+              require(not failed, '|'.join(failed))
+          
+          def check_refs(api):
+              for tag in (TAG_BEFORE, TAG_AFTER):
+                  require(api.request('/git/matching-refs/tags/' + tag) == [], 'TAG_REF_CHANGED')
+          
+          def check_release(api, tag):
+              value = api.request(RELEASE_PATH)
+              assets = api.request(ASSETS_PATH)
+              validate_release(api, value, tag, assets, True)
+              check_refs(api)
+              return value
+          
+          def compare_preserved(before, after):
+              require(before['tag_name'] == TAG_BEFORE and after['tag_name'] == TAG_AFTER,
+                      'RELEASE_TAG_TRANSITION')
+              changed = [k for k in PRESERVE if k not in before or k not in after
+                         or type(before[k]) is not type(after[k]) or before[k] != after[k]]
+              require(not changed, 'RELEASE_FIELDS_CHANGED:' + ','.join(changed))
+          
+          def repair(api, context):
+              api.phase = 'source-and-history'
+              candidate_tree = check_source(api, context)
+              check_history(api, context)
+              api.phase = 'before-patch'
+              before = check_release(api, TAG_BEFORE)
+              # Refresh provenance/history before the single write. No atomicity claim.
+              check_main(api, context)
+              check_history(api, context)
+              api.phase = 'patch'
+              patched = api.request(RELEASE_PATH, 'PATCH', PATCH_BODY)
+              validate_release(api, patched, TAG_AFTER)
+              compare_preserved(before, patched)
+              api.phase = 'after-patch'
+              after = check_release(api, TAG_AFTER)
+              compare_preserved(before, after)
+              check_main(api, context)
+              api.phase = 'history-final'
+              count = check_history(api, context)
+              receipt = {'operation': OPERATION, 'runId': context.run_id, 'attempt': 1,
+                         'patchCount': api.patch_attempts, 'helperBefore': PREVIOUS,
+                         'helperCommit': context.head, 'helperTree': candidate_tree,
+                         'sourceCommit': SOURCE, 'sourceTree': TREE, 'releaseId': RELEASE,
+                         'beforeTag': TAG_BEFORE, 'afterTag': TAG_AFTER, 'target': SOURCE,
+                         'draft': True, 'prerelease': False, 'publishedAt': None, 'assets': [],
+                         'releaseNameSha256': NAME_SHA, 'releaseBodySha256': BODY_SHA,
+                         'baselineHistorySha256': BASELINE_HISTORY, 'observedHistoryCount': count,
+                         'retainedFailures': {'34703610757': 'DRAFT_CHANGED',
+                                              '34690874856': 'RELEASE_COUNT_CHANGED'},
+                         'patchPayloadSha256': digest(PATCH_BODY),
+                         'benchmarkExecuted': False, 'browserExecuted': False,
+                         'ciHelloReadbackRequired': True, 'benchmarkCommandAuthorizedByRepair': False}
+              api.evidence.sink({'tagRepairReceipt': receipt, 'receiptSha256': digest(receipt)})
+              return receipt
+          
+          # SYNTHETIC fixtures below only exercise client logic. No live credentials,
+          # environment rewriting, GitHub call, browser or benchmark is used by tests.
+          class SyntheticTransport:
+              HEAD = 'c' * 40
+              HEAD_TREE = 'd' * 40
+              RUN = 90000000001
+          
+              def __init__(self):
+                  self.calls = []
+                  self.hooks = {}
+                  self.write_response = None
+                  self.written = False
+                  self.release = {'id': RELEASE, 'node_id': 'SYNTHETIC_RELEASE',
+                      'tag_name': TAG_BEFORE, 'target_commitish': SOURCE, 'draft': True,
+                      'prerelease': False, 'published_at': None, 'assets': [],
+                      'name': 'SYNTHETIC NAME', 'body': 'SYNTHETIC BODY — không phải authorization\n',
+                      'author': {'login': 'SYNTHETIC_AUTHOR'}, 'created_at': 'SYNTHETIC_TIME'}
+                  self.api_assets = []
+                  self.source = [{'path': 'synthetic/file-%03d' % i, 'mode': '100644',
+                                  'type': 'blob', 'sha': '%040x' % (i + 1)} for i in range(112)]
+                  self.previous = copy.deepcopy(self.source) + [{'path': WORKFLOW, 'mode': '100644',
+                                                                 'type': 'blob', 'sha': PREVIOUS_BLOB}]
+                  self.candidate = copy.deepcopy(self.previous)
+                  self.candidate[-1]['sha'] = 'e' * 40
+                  self.run = {'id': self.RUN, 'head_sha': self.HEAD, 'head_branch': BRANCH,
+                              'event': 'push', 'path': WORKFLOW, 'run_attempt': 1,
+                              'status': 'in_progress', 'conclusion': None,
+                              'actor': {'login': OWNER}, 'triggering_actor': {'login': OWNER}}
+                  self.old = [{'id': i + 1000, 'path': '.github/workflows/ci.yml', 'event': 'push',
+                               'head_sha': SOURCE, 'run_attempt': 1, 'status': 'completed',
+                               'conclusion': 'success'} for i in range(124)]
+                  for run_id in (34690874856, 34703610757):
+                      self.old.append({'id': run_id, 'path': WORKFLOW, 'event': 'push',
+                                       'head_sha': PREVIOUS, 'run_attempt': 1,
+                                       'status': 'completed', 'conclusion': 'failure'})
+                  self.history = copy.deepcopy(self.old) + [copy.deepcopy(self.run)]
+          
+              @staticmethod
+              def raw(value, status=200):
+                  return RawResponse(status, canonical(value), {'ETag': 'SYNTHETIC_ETAG'})
+          
+              def send(self, method, path, body, timeout, limit):
+                  self.calls.append((method, path, body))
+                  hook = self.hooks.get((method, path))
+                  if hook is not None:
+                      return hook(self) if callable(hook) else hook
+                  if method == 'PATCH':
+                      self.written = True
+                      if self.write_response is not None:
+                          return copy.deepcopy(self.write_response)
+                      self.release.update(json.loads(body))
+                      return self.raw(self.release)
+                  if path == '':
+                      return self.raw({'full_name': REPO, 'private': True, 'default_branch': 'main'})
+                  if path == '/branches/main':
+                      return self.raw({'commit': {'sha': SOURCE, 'commit': {'tree': {'sha': TREE}}}})
+                  if path == BRANCH_PATH:
+                      return self.raw({'commit': {'sha': self.HEAD}})
+                  if path == '/git/commits/' + PREVIOUS:
+                      return self.raw({'sha': PREVIOUS, 'tree': {'sha': PREVIOUS_TREE},
+                                       'parents': [{'sha': SOURCE}]})
+                  if path == '/git/commits/' + self.HEAD:
+                      return self.raw({'sha': self.HEAD, 'tree': {'sha': self.HEAD_TREE},
+                                       'parents': [{'sha': PREVIOUS}]})
+                  trees = {TREE: self.source, PREVIOUS_TREE: self.previous, self.HEAD_TREE: self.candidate}
+                  for key, entries in trees.items():
+                      if path == '/git/trees/' + key + '?recursive=1':
+                          return self.raw({'sha': key, 'truncated': False, 'tree': entries})
+                  if path == RELEASE_PATH:
+                      return self.raw(self.release)
+                  if path == ASSETS_PATH:
+                      return self.raw(self.api_assets)
+                  if path.startswith('/git/matching-refs/tags/'):
+                      return self.raw([])
+                  if path == '/actions/runs/' + str(self.RUN):
+                      return self.raw(self.run)
+                  if path.startswith('/actions/runs?per_page=100&page='):
+                      page = int(path.rsplit('=', 1)[1])
+                      return self.raw({'total_count': len(self.history),
+                                       'workflow_runs': self.history[(page - 1) * 100:page * 100]})
+                  raise AssertionError('Unexpected synthetic path: ' + path)
+          
+          class RepairTests(unittest.TestCase):
+              def setUp(self):
+                  self.transport = SyntheticTransport()
+                  self.events = []
+                  self.api = API(self.transport, Evidence(self.events.append))
+                  self.context = Context(self.transport.HEAD, self.transport.RUN)
+                  self.constants = patch.dict(globals(), {
+                      'NAME_SHA': sha256(self.transport.release['name'].encode()),
+                      'BODY_SHA': sha256(self.transport.release['body'].encode()),
+                      'BASELINE_HISTORY': digest(self.transport.old)})
+                  self.constants.start()
+                  self.addCleanup(self.constants.stop)
+          
+              def writes(self):
+                  return [x for x in self.transport.calls if x[0] == 'PATCH']
+          
+              def fails(self, code, writes=0):
+                  with self.assertRaisesRegex(Stop, code):
+                      repair(self.api, self.context)
+                  self.assertEqual(len(self.writes()), writes)
+          
+              def environment(self):
+                  return {'GITHUB_ACTIONS': 'true', 'GITHUB_REPOSITORY': REPO,
+                          'GITHUB_ACTOR': OWNER, 'GITHUB_TRIGGERING_ACTOR': OWNER,
+                          'GITHUB_EVENT_NAME': 'push', 'GITHUB_REF': 'refs/heads/' + BRANCH,
+                          'GITHUB_RUN_ATTEMPT': '1', 'GITHUB_SHA': self.context.head,
+                          'GITHUB_RUN_ID': str(self.context.run_id)}
+          
+              def event(self):
+                  return {'repository': {'full_name': REPO, 'private': True},
+                          'sender': {'login': OWNER}, 'ref': 'refs/heads/' + BRANCH,
+                          'before': PREVIOUS, 'after': self.context.head, 'created': False,
+                          'deleted': False, 'forced': False}
+          
+              def test_01_success_one_four_field_write_and_preserved_history(self):
+                  old = copy.deepcopy(self.transport.history)
+                  result = repair(self.api, self.context)
+                  self.assertEqual(self.writes(), [('PATCH', RELEASE_PATH, canonical(PATCH_BODY))])
+                  self.assertEqual(result['afterTag'], TAG_AFTER)
+                  self.assertEqual(result['target'], SOURCE)
+                  self.assertEqual(self.transport.history, old)
+                  self.assertFalse(result['benchmarkExecuted'])
+                  self.assertTrue(result['ciHelloReadbackRequired'])
+          
+              def test_02_internal_tag_in_patch_response_stops_with_evidence(self):
+                  self.transport.write_response = self.transport.raw(self.transport.release)
+                  self.fails('RELEASE_TAG_MISMATCH', 1)
+                  captured = [e['responseBegin'] for e in self.events if 'responseBegin' in e]
+                  self.assertEqual(captured[-1]['method'], 'PATCH')
+                  self.assertEqual(captured[-1]['fullResponseSha256'], sha256(self.transport.write_response.body))
+                  self.assertFalse(any('tagRepairReceipt' in e for e in self.events))
+          
+              def test_03_patch_fields_are_individually_rejected(self):
+                  cases = [('tag_name', TAG_BEFORE, 'RELEASE_TAG_MISMATCH'),
+                           ('target_commitish', PREVIOUS, 'RELEASE_TARGET_MISMATCH'),
+                           ('id', '387547778', 'RELEASE_ID_MISMATCH'),
+                           ('draft', 1, 'DRAFT_FLAG_MISMATCH'),
+                           ('prerelease', 0, 'PRERELEASE_FLAG_MISMATCH'),
+                           ('published_at', 'published', 'PUBLISHED_AT_MISMATCH'),
+                           ('assets', [{'id': 1}], 'RELEASE_ASSETS_NOT_EMPTY')]
+                  for field, value, code in cases:
+                      with self.subTest(field=field):
+                          patched = dict(self.transport.release, tag_name=TAG_AFTER)
+                          patched[field] = value
+                          events = []
+                          api = API(self.transport, Evidence(events.append))
+                          with self.assertRaisesRegex(Stop, code):
+                              validate_release(api, patched, TAG_AFTER)
+                          self.assertTrue(events[0]['releasePredicates']['checks'])
+          
+              def test_04_assets_two_views_are_distinct(self):
+                  self.transport.api_assets = [{'id': 1}]
+                  self.fails('ASSET_ENDPOINT_NOT_EMPTY')
+                  self.transport.api_assets = []
+                  self.transport.release['assets'] = [{'id': 1}]
+                  self.fails('RELEASE_ASSETS_NOT_EMPTY')
+          
+              def test_05_missing_published_at_does_not_equal_null(self):
+                  del self.transport.release['published_at']
+                  self.fails('PUBLISHED_AT_MISMATCH')
+          
+              def test_06_name_body_hash_changes_stop_before_write(self):
+                  self.transport.release['body'] += 'changed'
+                  self.fails('RELEASE_BODY_CHANGED')
+                  self.transport.release['name'] += 'changed'
+                  self.fails('RELEASE_NAME_CHANGED')
+          
+              def test_07_intended_tag_delta_only_is_preserved(self):
+                  before = copy.deepcopy(self.transport.release)
+                  after = dict(before, tag_name=TAG_AFTER, updated_at='NEW_SERVER_TIME', html_url='NEW_SERVER_URL')
+                  compare_preserved(before, after)
+                  for field in PRESERVE:
+                      with self.subTest(field=field):
+                          changed = dict(after)
+                          changed.pop(field)
+                          with self.assertRaisesRegex(Stop, 'RELEASE_FIELDS_CHANGED'):
+                              compare_preserved(before, changed)
+          
+              def test_08_wrong_push_environment_is_rejected_without_transport(self):
+                  for key in ('GITHUB_ACTIONS', 'GITHUB_ACTOR', 'GITHUB_TRIGGERING_ACTOR',
+                              'GITHUB_REPOSITORY', 'GITHUB_EVENT_NAME', 'GITHUB_REF', 'GITHUB_RUN_ATTEMPT'):
+                      with self.subTest(key=key):
+                          env = self.environment()
+                          env[key] = 'SYNTHETIC_WRONG'
+                          with self.assertRaisesRegex(Stop, 'CONTEXT'):
+                              context_guard(env, self.event())
+                  self.assertEqual(self.transport.calls, [])
+          
+              def test_09_existing_branch_event_guards(self):
+                  self.assertEqual(context_guard(self.environment(), self.event()), self.context)
+                  for field, value in (('before', '0' * 40), ('after', SOURCE), ('created', True),
+                                       ('forced', True), ('deleted', True), ('ref', 'refs/heads/main')):
+                      with self.subTest(field=field):
+                          event = self.event()
+                          event[field] = value
+                          with self.assertRaisesRegex(Stop, 'EXISTING_BRANCH_PUSH_CHANGED'):
+                              context_guard(self.environment(), event)
+          
+              def test_10_current_branch_drift_stops(self):
+                  self.transport.hooks[('GET', BRANCH_PATH)] = self.transport.raw({'commit': {'sha': PREVIOUS}})
+                  self.fails('HELPER_BRANCH_CHANGED')
+          
+              def test_11_wrong_parent_stops(self):
+                  self.transport.hooks[('GET', '/git/commits/' + self.context.head)] = self.transport.raw(
+                      {'sha': self.context.head, 'tree': {'sha': self.transport.HEAD_TREE},
+                       'parents': [{'sha': SOURCE}]})
+                  self.fails('HELPER_PARENT')
+          
+              def test_12_source_blob_mode_and_extra_file_stop(self):
+                  original = copy.deepcopy(self.transport.candidate)
+                  for mode in ('blob', 'mode', 'extra', 'unchanged-helper'):
+                      with self.subTest(mode=mode):
+                          self.transport.candidate = copy.deepcopy(original)
+                          if mode == 'blob':
+                              self.transport.candidate[0]['sha'] = 'f' * 40
+                          elif mode == 'mode':
+                              self.transport.candidate[0]['mode'] = '100755'
+                          elif mode == 'extra':
+                              self.transport.candidate.append({'path': 'unexpected', 'mode': '100644',
+                                                               'type': 'blob', 'sha': 'f' * 40})
+                          else:
+                              self.transport.candidate[-1]['sha'] = PREVIOUS_BLOB
+                          self.fails('HELPER_SCOPE')
+          
+              def test_13_main_and_private_drift_stop(self):
+                  self.transport.hooks[('GET', '')] = self.transport.raw(
+                      {'full_name': REPO, 'private': False, 'default_branch': 'main'})
+                  self.fails('REPOSITORY_CHANGED')
+                  del self.transport.hooks[('GET', '')]
+          WP004A_SOURCE_PART_2
+
+      - name: Stage pinned helper source part 3 of 4
+        shell: bash
+        run: |
+          test -f "$RUNNER_TEMP/wp004a-tag-repair-program.py"
+          test ! -L "$RUNNER_TEMP/wp004a-tag-repair-program.py"
+          cat >> "$RUNNER_TEMP/wp004a-tag-repair-program.py" <<'WP004A_SOURCE_PART_3'
+                  self.transport.hooks[('GET', '/branches/main')] = self.transport.raw(
+                      {'commit': {'sha': PREVIOUS, 'commit': {'tree': {'sha': TREE}}}})
+                  self.fails('MAIN_CHANGED')
+          
+              def test_14_missing_history_page_and_changing_total_stop(self):
+                  path = '/actions/runs?per_page=100&page=2'
+                  self.transport.hooks[('GET', path)] = self.transport.raw({'total_count': 127, 'workflow_runs': []})
+                  self.fails('HISTORY_INCOMPLETE_OR_CHANGED')
+                  self.transport.hooks[('GET', path)] = self.transport.raw(
+                      {'total_count': 128, 'workflow_runs': self.transport.history[100:]})
+                  self.fails('HISTORY_INCOMPLETE_OR_CHANGED')
+          
+              def test_15_old_failure_cannot_be_dropped_or_reclassified(self):
+                  self.transport.history[-2]['conclusion'] = 'success'
+                  self.fails('BASELINE_HISTORY_CHANGED')
+                  self.transport.history.pop(-2)
+                  self.fails('BASELINE_HISTORY_CHANGED')
+          
+              def test_16_duplicate_history_id_stops(self):
+                  self.transport.history[1]['id'] = self.transport.history[0]['id']
+                  self.fails('HISTORY_DUPLICATE_OR_ID')
+          
+              def test_17_canvas_or_duplicate_own_run_stops(self):
+                  extra = dict(self.transport.run, id=self.transport.RUN + 1,
+                               path='.github/workflows/canvas-spike-command.yml')
+                  self.transport.history.append(extra)
+                  self.fails('REPAIR_ALREADY_ATTEMPTED_OR_UNEXPECTED_RUN')
+                  extra['path'] = WORKFLOW
+                  self.fails('REPAIR_ALREADY_ATTEMPTED_OR_UNEXPECTED_RUN')
+          
+              def test_18_attempt_two_and_new_unrelated_run_stop(self):
+                  self.transport.run['run_attempt'] = 2
+                  self.fails('RUN_CHANGED')
+                  self.transport.run['run_attempt'] = 1
+                  self.transport.history.append(dict(self.transport.old[0], id=1234567))
+                  self.fails('BASELINE_HISTORY_CHANGED')
+          
+              def test_19_git_ref_or_already_repaired_draft_stops(self):
+                  path = '/git/matching-refs/tags/' + TAG_AFTER
+                  self.transport.hooks[('GET', path)] = self.transport.raw([{'ref': 'refs/tags/' + TAG_AFTER}])
+                  self.fails('TAG_REF_CHANGED')
+                  del self.transport.hooks[('GET', path)]
+                  self.transport.release['tag_name'] = TAG_AFTER
+                  self.fails('RELEASE_TAG_MISMATCH')
+          
+              def test_20_http_failures_do_not_retry_patch(self):
+                  for status in (301, 302, 403, 404, 422, 500, 503):
+                      with self.subTest(status=status):
+                          transport = SyntheticTransport()
+                          transport.write_response = RawResponse(status, b'SYNTHETIC_ERROR', {})
+                          events = []
+                          api = API(transport, Evidence(events.append))
+                          with self.assertRaisesRegex(Stop, 'HTTP_' + str(status)):
+                              repair(api, self.context)
+                          self.assertEqual(len([c for c in transport.calls if c[0] == 'PATCH']), 1)
+                          self.assertEqual([e['responseBegin']['status'] for e in events
+                                            if 'responseBegin' in e][-1], status)
+                          with self.assertRaisesRegex(Stop, 'UNAPPROVED_WRITE'):
+                              api.request(RELEASE_PATH, 'PATCH', PATCH_BODY)
+                          self.assertEqual(len([c for c in transport.calls if c[0] == 'PATCH']), 1)
+          
+              def test_21_patch_timeout_never_resends(self):
+                  self.transport.write_response = RawResponse(None, None, {}, False, 'TRANSPORT_NO_RESPONSE')
+                  self.fails('TRANSPORT_OUTCOME_UNKNOWN', 1)
+                  self.assertTrue([e['responseBegin'] for e in self.events if 'responseBegin' in e][-1]['missingResponse'])
+          
+              def test_22_independent_post_readback_drift_stops(self):
+                  def changed(transport):
+                      value = dict(transport.release)
+                      if transport.written:
+                          value['target_commitish'] = PREVIOUS
+                      return transport.raw(value)
+                  self.transport.hooks[('GET', RELEASE_PATH)] = changed
+                  self.fails('RELEASE_TARGET_MISMATCH', 1)
+          
+              def test_23_malformed_json_is_preserved_before_parse_failure(self):
+                  self.transport.hooks[('GET', RELEASE_PATH)] = RawResponse(200, b'\xef\xbb\xbf{bad-json', {})
+                  self.fails('JSON_INVALID')
+                  self.assertEqual([e['responseBegin'] for e in self.events if 'responseBegin' in e][-1]
+                                   ['fullResponseSha256'], sha256(b'\xef\xbb\xbf{bad-json'))
+          
+              def test_24_unicode_log_chunks_reassemble_with_hash(self):
+                  body = ('SYNTHETIC — Tiếng Việt\n' * 1000).encode()
+                  events = []
+                  with tempfile.TemporaryDirectory(prefix='wp004a-synthetic-') as directory:
+                      evidence = Evidence(events.append, Path(directory))
+                      evidence.capture('GET', RELEASE_PATH, 'synthetic',
+                          RawResponse(200, body, {'ETag': 'SYNTHETIC', 'Authorization': 'DO_NOT_LOG',
+                                                 'Set-Cookie': 'DO_NOT_LOG'}), RELEASE_LIMIT)
+                      self.assertEqual(Path(directory, 'response-0001.bin').read_bytes(), body)
+                  chunks = [e['responseChunk'] for e in events if 'responseChunk' in e]
+                  self.assertTrue(all(len(c['base64']) <= CHUNK_SIZE for c in chunks))
+                  self.assertEqual([c['index'] for c in chunks], list(range(1, len(chunks) + 1)))
+                  self.assertEqual(base64.b64decode(''.join(c['base64'] for c in chunks)), body)
+                  self.assertEqual(events[0]['responseBegin']['fullResponseSha256'], sha256(body))
+                  self.assertNotIn('DO_NOT_LOG', json.dumps(events))
+          
+              def test_25_incomplete_and_oversize_body_never_claim_full_hash(self):
+                  for response in (RawResponse(200, b'x' * 65, {}, False, 'RESPONSE_TOO_LARGE'),
+                                   RawResponse(200, b'partial', {}, False, 'RESPONSE_READ_ERROR')):
+                      with self.subTest(error=response.error):
+                          events = []
+                          Evidence(events.append).capture('GET', RELEASE_PATH, 'synthetic', response, 64)
+                          meta = events[0]['responseBegin']
+                          self.assertIsNone(meta['fullResponseSha256'])
+                          self.assertTrue(meta['truncatedOrReadIncomplete'])
+                          self.assertLessEqual(meta['bytesCaptured'], 64)
+          
+              def test_26_sensitive_body_is_withheld(self):
+                  events = []
+                  marker = b'SYNTHETIC_FORBIDDEN_MARKER'
+                  evidence = Evidence(events.append, forbidden=(marker,))
+                  with self.assertRaisesRegex(Stop, 'SENSITIVE_RESPONSE_WITHHELD'):
+                      evidence.capture('PATCH', RELEASE_PATH, 'synthetic', RawResponse(200, marker, {}), RELEASE_LIMIT)
+                  self.assertFalse(any('responseChunk' in e for e in events))
+                  self.assertNotIn(marker.decode(), json.dumps(events))
+          
+              def test_27_api_allowlist_and_boolean_payload_types(self):
+                  for path, method, data in (('/releases', 'GET', None),
+                                            (RELEASE_PATH, 'DELETE', None),
+                                            (RELEASE_PATH, 'POST', PATCH_BODY),
+                                            (RELEASE_PATH, 'PATCH', {'target_commitish': SOURCE}),
+                                            (RELEASE_PATH, 'PATCH', dict(PATCH_BODY, draft=1)),
+                                            ('/actions/runs/1/rerun', 'POST', None)):
+                      with self.subTest(path=path, method=method):
+                          with self.assertRaises(Stop):
+                              self.api.request(path, method, data)
+                  self.assertEqual(self.transport.calls, [])
+          
+              def test_28_read_403_stops_without_write_or_retry(self):
+                  path = '/actions/runs/' + str(self.context.run_id)
+                  self.transport.hooks[('GET', path)] = RawResponse(403, b'SYNTHETIC_DENIED', {})
+                  self.fails('HTTP_403')
+                  self.assertEqual(len([c for c in self.transport.calls if c[1] == path]), 1)
+          
+              def test_29_deadline_before_send_and_runtime_pin(self):
+                  api = API(self.transport, Evidence(self.events.append), deadline=0, clock=lambda: 1)
+                  with self.assertRaisesRegex(Stop, 'HELPER_DEADLINE'):
+                      api.request(RELEASE_PATH, 'PATCH', PATCH_BODY)
+                  self.assertEqual(api.patch_attempts, 0)
+                  self.assertEqual(self.transport.calls, [])
+                  runtime_guard((3, 12, 3))
+                  with self.assertRaisesRegex(Stop, 'PYTHON_VERSION'):
+                      runtime_guard((3, 12, 14))
+          
+              def test_30_redirect_handler_never_follows(self):
+                  self.assertIsNone(NoRedirect().redirect_request(None, None, 302, 'SYNTHETIC', {}, 'https://invalid.example'))
+          
+              def test_31_http_transport_preserves_error_body_and_sends_once(self):
+                  transport = HTTPTransport('SYNTHETIC_NOT_A_CREDENTIAL')
+                  requests = []
+                  class SyntheticOpener:
+                      def open(self, request, timeout):
+                          requests.append((request, timeout))
+                          raise urllib.error.HTTPError(request.full_url, 403, 'SYNTHETIC',
+                              {'ETag': 'SYNTHETIC_ETAG'}, io.BytesIO(b'SYNTHETIC_403_BODY'))
+                  transport.opener = SyntheticOpener()
+                  response = transport.send('PATCH', RELEASE_PATH, canonical(PATCH_BODY), 20, RELEASE_LIMIT)
+                  self.assertEqual(response.status, 403)
+                  self.assertEqual(response.body, b'SYNTHETIC_403_BODY')
+                  self.assertTrue(response.complete)
+                  self.assertEqual(len(requests), 1)
+                  request = requests[0][0]
+                  self.assertEqual(request.full_url, API_ROOT + RELEASE_PATH)
+                  self.assertEqual(request.method, 'PATCH')
+                  self.assertEqual(request.data, canonical(PATCH_BODY))
+                  self.assertEqual(request.get_header('X-github-api-version'), API_VERSION)
+          
+              def test_32_http_partial_read_is_explicitly_incomplete(self):
+                  class SyntheticResponse(io.BytesIO):
+                      code = 200
+                      headers = {'ETag': 'SYNTHETIC_ETAG'}
+                      calls = 0
+                      def read(self, count):
+                          self.calls += 1
+                          if self.calls == 1:
+                              return b'SYNTHETIC_PARTIAL'
+                          raise OSError('SYNTHETIC_INTERRUPTION')
+                  class SyntheticOpener:
+                      def open(self, request, timeout):
+                          return SyntheticResponse()
+                  transport = HTTPTransport('SYNTHETIC_NOT_A_CREDENTIAL')
+                  transport.opener = SyntheticOpener()
+                  response = transport.send('GET', RELEASE_PATH, None, 20, RELEASE_LIMIT)
+                  self.assertEqual(response.body, b'SYNTHETIC_PARTIAL')
+                  self.assertFalse(response.complete)
+                  self.assertEqual(response.error, 'RESPONSE_READ_ERROR')
+          
+              def test_33_second_prewrite_history_check_catches_drift(self):
+                  path = '/actions/runs?per_page=100&page=1'
+                  calls = []
+                  def later_drift(transport):
+                      calls.append(1)
+                      batch = copy.deepcopy(transport.history[:100])
+                      if len(calls) == 2:
+                          batch[0]['conclusion'] = 'failure'
+                      return transport.raw({'total_count': len(transport.history), 'workflow_runs': batch})
+                  self.transport.hooks[('GET', path)] = later_drift
+                  self.fails('BASELINE_HISTORY_CHANGED')
+                  self.assertEqual(len(calls), 2)
+          
+              def test_34_oversize_api_response_stops_before_parse(self):
+                  self.transport.hooks[('GET', RELEASE_PATH)] = RawResponse(
+                      200, b'x' * (RELEASE_LIMIT + 1), {}, False, 'RESPONSE_TOO_LARGE')
+                  self.fails('RESPONSE_TOO_LARGE')
+                  meta = [e['responseBegin'] for e in self.events if 'responseBegin' in e][-1]
+                  self.assertIsNone(meta['fullResponseSha256'])
+                  self.assertEqual(meta['bytesCaptured'], RELEASE_LIMIT)
+          
+              def memory_http_transport(self, wire):
+                  # Real stdlib HTTP parsing, with an in-memory stream and no socket.
+                  calls = []
+                  class MemorySocket:
+                      def makefile(self, *args, **kwargs):
+                          return io.BytesIO(wire)
+                  class MemoryOpener:
+                      def open(self, request, timeout):
+                          calls.append(request)
+                          response = http.client.HTTPResponse(MemorySocket())
+                          response.begin()
+                          return response
+                  transport = HTTPTransport('SYNTHETIC_NOT_A_CREDENTIAL')
+                  transport.opener = MemoryOpener()
+                  return transport, calls
+          
+              def length_wire(self, body, declared):
+                  return (b'HTTP/1.1 200 OK\r\nContent-Length: ' + str(declared).encode('ascii')
+                          + b'\r\nContent-Type: application/json\r\n\r\n' + body)
+          
+              def assert_partial_evidence(self, events, body):
+                  meta = [e['responseBegin'] for e in events if 'responseBegin' in e][-1]
+                  self.assertFalse(meta['responseComplete'])
+                  self.assertTrue(meta['truncatedOrReadIncomplete'])
+                  self.assertIsNone(meta['fullResponseSha256'])
+                  self.assertEqual(meta['sha256Captured'], sha256(body))
+                  chunks = [e['responseChunk'] for e in events if 'responseChunk' in e
+                            and e['responseChunk']['sequence'] == meta['sequence']]
+                  self.assertEqual(base64.b64decode(''.join(c['base64'] for c in chunks)), body)
+                  return meta
+          
+              def test_35_real_http_length_control_and_silent_eof(self):
+                  body = b'{"ok":true}'
+                  for missing in (0, 10):
+                      with self.subTest(missing=missing):
+                          transport, calls = self.memory_http_transport(self.length_wire(body, len(body) + missing))
+                          events = []
+                          api = API(transport, Evidence(events.append))
+                          if missing:
+                              with self.assertRaisesRegex(Stop, 'RESPONSE_CONTENT_LENGTH_MISMATCH'):
+                                  api.request(RELEASE_PATH)
+                              meta = self.assert_partial_evidence(events, body)
+                          else:
+                              self.assertEqual(api.request(RELEASE_PATH), {'ok': True})
+                              meta = events[0]['responseBegin']
+                              self.assertTrue(meta['responseComplete'])
+                              self.assertEqual(meta['fullResponseSha256'], sha256(body))
+                          self.assertEqual(meta['headers']['content-length'], str(len(body) + missing))
+                          self.assertEqual(len(calls), 1)
+                          self.assertEqual(api.patch_attempts, 0)
+          
+              def test_36_real_http_eof_empty_malformed_unicode_and_chunk_boundary(self):
+                  bodies = (b'', b'{"ok":', canonical({'text': 'SYNTHETIC Tiếng Việt'}),
+                            canonical({'text': 'x' * 65550}))
+                  for body in bodies:
+                      with self.subTest(bytes=len(body)):
+                          transport, calls = self.memory_http_transport(self.length_wire(body, len(body) + 10))
+                          events = []
+                          api = API(transport, Evidence(events.append))
+                          with self.assertRaisesRegex(Stop, 'RESPONSE_CONTENT_LENGTH_MISMATCH'):
+                              api.request(RELEASE_PATH)
+                          self.assert_partial_evidence(events, body)
+                          self.assertEqual(len(calls), 1)
+          
+              def test_37_real_http_prewrite_eof_blocks_patch(self):
+                  body = canonical(self.transport.release)
+                  transport, calls = self.memory_http_transport(self.length_wire(body, len(body) + 10))
+                  self.transport.hooks[('GET', RELEASE_PATH)] = lambda unused: transport.send(
+                      'GET', RELEASE_PATH, None, 20, RELEASE_LIMIT)
+                  self.fails('RESPONSE_CONTENT_LENGTH_MISMATCH')
+                  self.assert_partial_evidence(self.events, body)
+                  self.assertEqual(len(calls), 1)
+                  self.assertFalse(any('tagRepairReceipt' in e for e in self.events))
+          
+              def test_38_real_http_patch_eof_stops_once_without_success_receipt(self):
+                  body = canonical(dict(self.transport.release, **PATCH_BODY))
+                  transport, calls = self.memory_http_transport(self.length_wire(body, len(body) + 10))
+                  self.transport.hooks[('PATCH', RELEASE_PATH)] = lambda unused: transport.send(
+                      'PATCH', RELEASE_PATH, canonical(PATCH_BODY), 20, RELEASE_LIMIT)
+                  self.fails('RESPONSE_CONTENT_LENGTH_MISMATCH', 1)
+                  meta = self.assert_partial_evidence(self.events, body)
+                  self.assertEqual(meta['method'], 'PATCH')
+                  self.assertEqual(meta['phase'], 'patch')
+                  self.assertEqual(len(calls), 1)
+                  self.assertEqual(calls[0].data, canonical(PATCH_BODY))
+                  self.assertFalse(any('tagRepairReceipt' in e for e in self.events))
+                  with self.assertRaisesRegex(Stop, 'UNAPPROVED_WRITE'):
+                      self.api.request(RELEASE_PATH, 'PATCH', PATCH_BODY)
+                  self.assertEqual(len(calls), 1)
+          
+              def test_39_real_http_postwrite_eof_never_certifies_repair(self):
+                  body = canonical(dict(self.transport.release, **PATCH_BODY))
+                  transport, calls = self.memory_http_transport(self.length_wire(body, len(body) + 10))
+                  self.transport.hooks[('GET', RELEASE_PATH)] = lambda source: (
+                      transport.send('GET', RELEASE_PATH, None, 20, RELEASE_LIMIT)
+                      if source.written else source.raw(source.release))
+                  self.fails('RESPONSE_CONTENT_LENGTH_MISMATCH', 1)
+                  meta = self.assert_partial_evidence(self.events, body)
+                  self.assertEqual(meta['phase'], 'after-patch')
+                  self.assertEqual(len(calls), 1)
+                  self.assertFalse(any('tagRepairReceipt' in e for e in self.events))
+          
+              def test_40_real_http_chunked_and_close_delimited_controls(self):
+                  body = b'{"ok":true}'
+                  chunk = b'b\r\n' + body + b'\r\n'
+                  prefix = b'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n'
+                  cases = ((prefix + chunk + b'0\r\n\r\n', True),
+                           (prefix + chunk, False),
+                           (b'HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n' + body, True))
+                  for wire, complete in cases:
+                      with self.subTest(complete=complete, wire=wire[:60]):
+                          transport, calls = self.memory_http_transport(wire)
+                          events = []
+                          api = API(transport, Evidence(events.append))
+                          if complete:
+                              self.assertEqual(api.request(RELEASE_PATH), {'ok': True})
+                              self.assertTrue(events[0]['responseBegin']['responseComplete'])
+                          else:
+                              with self.assertRaisesRegex(Stop, 'RESPONSE_READ_ERROR'):
+                                  api.request(RELEASE_PATH)
+                              self.assert_partial_evidence(events, body)
+                          self.assertEqual(len(calls), 1)
+          
+              def test_41_real_http_invalid_or_conflicting_declared_lengths(self):
+                  body = b'{"ok":true}'
+                  for header in (b'-1', b'not-a-length', b'11, 21', b'11\r\nContent-Length: 21'):
+                      with self.subTest(header=header):
+                          wire = b'HTTP/1.1 200 OK\r\nContent-Length: ' + header + b'\r\n\r\n' + body
+                          transport, calls = self.memory_http_transport(wire)
+                          events = []
+                          api = API(transport, Evidence(events.append))
+                          with self.assertRaisesRegex(Stop, 'RESPONSE_CONTENT_LENGTH_INVALID'):
+                              api.request(RELEASE_PATH)
+                          self.assert_partial_evidence(events, body)
+                          self.assertEqual(len(calls), 1)
+                  for header in (b'011', b'11, 11', b'11\r\nContent-Length: 11'):
+                      transport, unused_calls = self.memory_http_transport(
+                          b'HTTP/1.1 200 OK\r\nContent-Length: ' + header + b'\r\n\r\n' + body)
+          WP004A_SOURCE_PART_3
+
+      - name: Stage pinned helper source part 4 of 4
+        shell: bash
+        run: |
+          test -f "$RUNNER_TEMP/wp004a-tag-repair-program.py"
+          test ! -L "$RUNNER_TEMP/wp004a-tag-repair-program.py"
+          cat >> "$RUNNER_TEMP/wp004a-tag-repair-program.py" <<'WP004A_SOURCE_PART_4'
+                      self.assertEqual(API(transport, Evidence(lambda unused: None)).request(RELEASE_PATH), {'ok': True})
+          
+              def chunked_wire(self, body, tail=b'\r\n0\r\n\r\n', missing=0):
+                  return (b'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n'
+                          + format(len(body) + missing, 'x').encode() + b'\r\n' + body + tail)
+          
+              def test_42_chunked_terminal_and_trailer_eof_rejected(self):
+                  body = b'{"ok":true}'
+                  for tail in (b'\r\n0', b'\r\n0\r', b'\r\n0\r\n',
+                               b'\r\n0\r\nX-Test: unfinished', b'\r\n0\r\nX-Test: ok\r\n'):
+                      with self.subTest(tail=tail):
+                          transport, calls = self.memory_http_transport(self.chunked_wire(body, tail))
+                          events = []
+                          with self.assertRaisesRegex(Stop, 'RESPONSE_READ_ERROR'):
+                              API(transport, Evidence(events.append)).request(RELEASE_PATH)
+                          self.assert_partial_evidence(events, body)
+                          self.assertEqual(len(calls), 1)
+          
+              def test_43_complete_chunks_extensions_and_trailers(self):
+                  body = b'{"ok":true}'
+                  wire = (b'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n'
+                          + b'5;name="value"\r\n' + body[:5] + b'\r\n6\r\n' + body[5:]
+                          + b'\r\n00;end=yes\r\nX-Test: retained-control\r\n\r\n')
+                  transport, calls = self.memory_http_transport(wire)
+                  events = []
+                  self.assertEqual(API(transport, Evidence(events.append)).request(RELEASE_PATH), {'ok': True})
+                  self.assertTrue(events[0]['responseBegin']['responseComplete'])
+                  self.assertEqual(events[0]['responseBegin']['fullResponseSha256'], sha256(body))
+                  self.assertEqual(len(calls), 1)
+                  for spelling in (b'Chunked', b'chunked ', b'chunked\t'):
+                      for complete in (True, False):
+                          wire = self.chunked_wire(body, b'\r\n0\r\n\r\n' if complete else b'\r\n0')
+                          transport, calls = self.memory_http_transport(wire.replace(b'chunked\r\n', spelling + b'\r\n'))
+                          response = transport.send('GET', RELEASE_PATH, None, 20, RELEASE_LIMIT)
+                          self.assertEqual(response.complete, complete)
+                          self.assertEqual(response.body, body)
+          
+              def test_44_chunked_partial_first_later_unicode_and_read_boundary(self):
+                  for body in (b'', b'{"ok":true}', canonical({'text': 'Tiếng Việt'}),
+                               canonical({'text': 'x' * 65550})):
+                      for split in (0, min(5, len(body))):
+                          with self.subTest(bytes=len(body), split=split):
+                              wire = b'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n'
+                              if split:
+                                  wire += format(split, 'x').encode() + b'\r\n' + body[:split] + b'\r\n'
+                              wire += format(len(body) - split + 10, 'x').encode() + b'\r\n' + body[split:]
+                              transport, calls = self.memory_http_transport(wire)
+                              events = []
+                              with self.assertRaisesRegex(Stop, 'RESPONSE_READ_ERROR'):
+                                  API(transport, Evidence(events.append)).request(RELEASE_PATH)
+                              self.assert_partial_evidence(events, body)
+                              self.assertEqual(len(calls), 1)
+          
+              def assert_chunked_repair_failure(self, phase, missing):
+                  body = canonical(self.transport.release if phase == 'before-patch'
+                                   else dict(self.transport.release, **PATCH_BODY))
+                  wire = self.chunked_wire(body, b'' if missing else b'\r\n0', missing)
+                  transport, calls = self.memory_http_transport(wire)
+                  method = 'PATCH' if phase == 'patch' else 'GET'
+                  self.transport.hooks[(method, RELEASE_PATH)] = lambda source: (
+                      source.raw(source.release) if phase == 'after-patch' and not source.written else
+                      transport.send(method, RELEASE_PATH, canonical(PATCH_BODY) if method == 'PATCH' else None,
+                                     20, RELEASE_LIMIT))
+                  self.fails('RESPONSE_READ_ERROR', 0 if phase == 'before-patch' else 1)
+                  meta = self.assert_partial_evidence(self.events, body)
+                  self.assertEqual(meta['phase'], phase)
+                  self.assertEqual(len(calls), 1)
+                  self.assertFalse(any('tagRepairReceipt' in e for e in self.events))
+                  if phase != 'before-patch':
+                      with self.assertRaisesRegex(Stop, 'UNAPPROVED_WRITE'):
+                          self.api.request(RELEASE_PATH, 'PATCH', PATCH_BODY)
+                      self.assertEqual(len(calls), 1)
+          
+              def test_45_chunked_prewrite_eof_blocks_patch(self):
+                  for missing in (0, 10):
+                      with self.subTest(missing=missing):
+                          self.setUp()
+                          self.assert_chunked_repair_failure('before-patch', missing)
+          
+              def test_46_chunked_patch_eof_stops_once(self):
+                  for missing in (0, 10):
+                      with self.subTest(missing=missing):
+                          self.setUp()
+                          self.assert_chunked_repair_failure('patch', missing)
+          
+              def test_47_chunked_postwrite_eof_never_certifies_repair(self):
+                  for missing in (0, 10):
+                      with self.subTest(missing=missing):
+                          self.setUp()
+                          self.assert_chunked_repair_failure('after-patch', missing)
+          
+              def test_48_chunked_http_error_wrapper_keeps_partial_and_never_retries(self):
+                  body = b'SYNTHETIC_DENIED'
+                  transport, calls = self.memory_http_transport(self.chunked_wire(body, b'', 10))
+                  original_open = transport.opener.open
+                  def denied(request, timeout):
+                      response = original_open(request, timeout)
+                      raise urllib.error.HTTPError(request.full_url, 403, 'SYNTHETIC', response.headers, response)
+                  transport.opener.open = denied
+                  events = []
+                  api = API(transport, Evidence(events.append))
+                  with self.assertRaisesRegex(Stop, 'HTTP_403'):
+                      api.request(RELEASE_PATH, 'PATCH', PATCH_BODY)
+                  meta = self.assert_partial_evidence(events, body)
+                  self.assertEqual(meta['status'], 403)
+                  self.assertEqual(api.patch_attempts, 1)
+                  with self.assertRaisesRegex(Stop, 'UNAPPROVED_WRITE'):
+                      api.request(RELEASE_PATH, 'PATCH', PATCH_BODY)
+                  self.assertEqual(len(calls), 1)
+          
+              def test_49_chunked_bounds_fragmented_reads_and_timeout_keep_bytes(self):
+                  body = b'{"ok":true}'
+                  wire = self.chunked_wire(body).replace(b'Transfer-Encoding: chunked\r\n',
+                      b'Transfer-Encoding: chunked\r\ntransfer-encoding: unknown\r\n')
+                  transport, calls = self.memory_http_transport(wire)
+                  events = []
+                  with self.assertRaisesRegex(Stop, 'RESPONSE_TRANSFER_ENCODING_UNSUPPORTED'):
+                      API(transport, Evidence(events.append)).request(RELEASE_PATH)
+                  meta = self.assert_partial_evidence(events, body)
+                  self.assertEqual(meta['headers']['transfer-encoding'], 'chunked, unknown')
+                  for coding in (b'identity', b'chunked, chunked', b'unknown'):
+                      wire = b'HTTP/1.1 200 OK\r\nTransfer-Encoding: ' + coding + b'\r\n\r\n' + body
+                      transport, calls = self.memory_http_transport(wire)
+                      response = transport.send('GET', RELEASE_PATH, None, 20, RELEASE_LIMIT)
+                      self.assertFalse(response.complete)
+                      self.assertEqual(response.body, body)
+                      self.assertEqual(response.error, 'RESPONSE_TRANSFER_ENCODING_UNSUPPORTED')
+                  for limit in (len(body), len(body) - 1):
+                      transport, calls = self.memory_http_transport(self.chunked_wire(body))
+                      response = transport.send('GET', RELEASE_PATH, None, 20, limit)
+                      self.assertEqual(response.complete, limit == len(body))
+                      self.assertEqual(response.body, body)
+                      self.assertEqual(response.error, None if limit == len(body) else 'RESPONSE_TOO_LARGE')
+                  for tail in (b'\r\n0;' + b'x' * 65537, b'\r\n0\r\n' + b'X: a\r\n' * 11000 + b'\r\n'):
+                      transport, calls = self.memory_http_transport(self.chunked_wire(body, tail))
+                      response = transport.send('GET', RELEASE_PATH, None, 20, RELEASE_LIMIT)
+                      self.assertFalse(response.complete)
+                      self.assertEqual(response.body, body)
+                  class Fragmented(io.BytesIO):
+                      reads = 0
+                      def read1(self, count):
+                          self.reads += 1
+                          if self.reads == 3:
+                              raise TimeoutError('SYNTHETIC_TIMEOUT')
+                          return super().read1(min(count, 3))
+                  transport, calls = self.memory_http_transport(self.chunked_wire(body))
+                  original_open = transport.opener.open
+                  def fragmented(request, timeout):
+                      response = original_open(request, timeout)
+                      response.fp = Fragmented(response.fp.read())
+                      return response
+                  transport.opener.open = fragmented
+                  events = []
+                  api = API(transport, Evidence(events.append))
+                  with self.assertRaisesRegex(Stop, 'RESPONSE_READ_ERROR'):
+                      api.request(RELEASE_PATH, 'PATCH', PATCH_BODY)
+                  self.assert_partial_evidence(events, body[:6])
+                  self.assertEqual(api.patch_attempts, 1)
+                  with self.assertRaisesRegex(Stop, 'UNAPPROVED_WRITE'):
+                      api.request(RELEASE_PATH, 'PATCH', PATCH_BODY)
+                  self.assertEqual(len(calls), 1)
+          
+          def self_tests():
+              # Guard against accidental live transport use in fixture regressions.
+              before = (NAME_SHA, BODY_SHA, BASELINE_HISTORY, canonical(PATCH_BODY))
+              suite = unittest.defaultTestLoader.loadTestsFromTestCase(RepairTests)
+              with patch.object(urllib.request.OpenerDirector, 'open',
+                                side_effect=AssertionError('LIVE_OPENER_FORBIDDEN_IN_TEST')) as live_open:
+                  result = unittest.TextTestRunner(verbosity=2).run(suite)
+                  require(live_open.call_count == 0, 'LIVE_OPENER_ATTEMPTED_IN_TEST')
+              require(before == (NAME_SHA, BODY_SHA, BASELINE_HISTORY, canonical(PATCH_BODY)),
+                      'SELF_TEST_CONSTANTS_NOT_RESTORED')
+              require(result.wasSuccessful(), 'OFFLINE_REGRESSION_FAILED')
+              emit({'offlineRegression': {'testsRun': result.testsRun, 'synthetic': True,
+                                         'python': '.'.join(map(str, sys.version_info[:3])),
+                                         'liveAPIRequests': 0, 'chromiumTested': False}})
+          
+          def main(argv):
+              api = None
+              try:
+                  require(argv in (['--self-test'], ['--execute']), 'EXPLICIT_MODE_REQUIRED')
+                  runtime_guard(sys.version_info)
+                  self_tests()
+                  if argv == ['--self-test']:
+                      return 0
+                  with open(os.environ['GITHUB_EVENT_PATH'], encoding='utf-8') as event_file:
+                      event = json.load(event_file)
+                  context = context_guard(os.environ, event)
+                  token = os.environ.get('GITHUB_TOKEN', '')
+                  directory = Path(tempfile.mkdtemp(prefix='wp004a-tag-repair-', dir=os.environ['RUNNER_TEMP']))
+                  evidence = Evidence(directory=directory, forbidden=(token.encode('utf-8'),))
+                  api = API(HTTPTransport(token), evidence)
+                  repair(api, context)
+                  return 0
+              except Exception as error:
+                  code = str(error) if isinstance(error, Stop) else 'UNEXPECTED_' + type(error).__name__
+                  emit({'tagRepairFailed': True, 'operation': OPERATION,
+                        'phase': 'context' if api is None else api.phase,
+                        'patchAttempted': api is not None and api.patch_attempts > 0,
+                        'error': code, 'retryAllowed': False, 'benchmarkExecuted': False})
+                  return 1
+          
+          if __name__ == '__main__':
+              sys.exit(main(sys.argv[1:]))
+          WP004A_SOURCE_PART_4
+
+      - name: Verify assembled hash, test offline, repair tag once, and read back
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          /usr/bin/python3 - <<'PY'
-          import hashlib,json,os,re,sys,time,urllib.request,urllib.error
-          REPO='HungQuach301/meridian-studio'
-          OWNER='HungQuach301'
-          SOURCE='2e068c42e6c4b45dcabef6d3bc019b990d88a95f'
-          TREE='b0fffa10ab989a03ab54ce01c9d10d6e83e393a7'
-          OLD_TARGET='7f2a966a7340a2d44e3486c947d0795251dac2a3'
-          BRANCH='wp/WP-004a-retarget-2e068c4'
-          WORKFLOW='.github/workflows/wp004a-retarget-release.yml'
-          RELEASE=387547778
-          TAG='wp004a-evidence-7f2a966'
-          BASELINE_HISTORY='6928630413afca1417a7c63c22450619948bbff029bb2a07e22c553d0abf0a32'
-          API='https://api.github.com/repos/'+REPO
-          DEADLINE=time.monotonic()+260
-          patch_attempted=False
-          phase='context'
-          def require(value,code):
-              if not value: raise RuntimeError(code)
-          def digest(value):
-              return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
-          class NoRedirect(urllib.request.HTTPRedirectHandler):
-              def redirect_request(self,*args,**kwargs): return None
-          opener=urllib.request.build_opener(NoRedirect())
-          def api(path,method='GET',data=None):
-              global patch_attempted
-              require(path in ['', '/branches/main', '/releases/'+str(RELEASE),
-                  '/releases/'+str(RELEASE)+'/assets?per_page=100',
-                  '/git/matching-refs/tags/'+TAG]
-                  or re.fullmatch(r'/git/(commits/[0-9a-f]{40}|trees/[0-9a-f]{40}\?recursive=1)',path)
-                  or re.fullmatch(r'/actions/runs(/[1-9][0-9]*|\?per_page=100&page=[1-9][0-9]*)',path),
-                  'UNAPPROVED_API_PATH')
-              if method=='PATCH':
-                  require(not patch_attempted and path=='/releases/'+str(RELEASE)
-                      and data=={'target_commitish':SOURCE},'UNAPPROVED_WRITE')
-                  patch_attempted=True
-                  print(json.dumps({'phase':'patch-attempt','count':1,'releaseId':RELEASE,'target':SOURCE}),flush=True)
-              else: require(method=='GET' and data is None,'UNAPPROVED_METHOD')
-              remaining=DEADLINE-time.monotonic()
-              require(remaining>0,'HELPER_DEADLINE')
-              headers={'Authorization':'Bearer '+os.environ['GITHUB_TOKEN'],
-                  'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}
-              body=None
-              if data is not None:
-                  body=json.dumps(data,separators=(',',':')).encode();headers['Content-Type']='application/json'
-              req=urllib.request.Request(API+path,data=body,headers=headers,method=method)
-              try:
-                  with opener.open(req,timeout=min(20,remaining)) as response:
-                      require(response.status==200,'HTTP_'+str(response.status))
-                      payload=response.read(8*1024*1024+1)
-                      require(len(payload)<=8*1024*1024,'RESPONSE_TOO_LARGE')
-                      return json.loads(payload)
-              except urllib.error.HTTPError as exc:
-                  raise RuntimeError('HTTP_'+str(exc.code)) from None
-          def check_main():
-              repo=api('');require(repo['full_name']==REPO and repo['private'] is True
-                  and repo['default_branch']=='main','REPOSITORY_CHANGED')
-              branch=api('/branches/main')
-              require(branch['commit']['sha']==SOURCE and branch['commit']['commit']['tree']['sha']==TREE,'MAIN_CHANGED')
-          def check_release(target):
-              value=api('/releases/'+str(RELEASE))
-              assets=api('/releases/'+str(RELEASE)+'/assets?per_page=100')
-              require(value['id']==RELEASE and value['tag_name']==TAG
-                  and value['target_commitish']==target and value['draft'] is True
-                  and value['prerelease'] is False and value['published_at'] is None
-                  and value['assets']==[] and assets==[],'DRAFT_CHANGED')
-              require(api('/git/matching-refs/tags/'+TAG)==[],'TAG_REF_CHANGED')
-              return value
-          def read_history():
-              result=[];total=None
-              for page in range(1,11):
-                  data=api('/actions/runs?per_page=100&page='+str(page))
-                  require(type(data['total_count']) is int and 1<=data['total_count']<=1000,'HISTORY_COUNT')
-                  if total is None: total=data['total_count']
-                  batch=data['workflow_runs']
-                  require(data['total_count']==total and isinstance(batch,list)
-                      and len(batch)==min(100,total-len(result)),'HISTORY_INCOMPLETE_OR_CHANGED')
-                  result.extend(batch)
-                  if len(result)==total:
-                      require(len({x['id'] for x in result})==total,'HISTORY_DUPLICATE')
-                      return result
-              raise RuntimeError('HISTORY_INCOMPLETE')
-          try:
-              require(sys.version_info[:3]==(3,12,3),'PYTHON_VERSION')
-              require(os.environ.get('GITHUB_ACTIONS')=='true'
-                  and os.environ.get('GITHUB_REPOSITORY')==REPO
-                  and os.environ.get('GITHUB_ACTOR')==OWNER
-                  and os.environ.get('GITHUB_TRIGGERING_ACTOR')==OWNER
-                  and os.environ.get('GITHUB_EVENT_NAME')=='push'
-                  and os.environ.get('GITHUB_REF')=='refs/heads/'+BRANCH
-                  and os.environ.get('GITHUB_RUN_ATTEMPT')=='1','CONTEXT')
-              head=os.environ['GITHUB_SHA'];run_id=int(os.environ['GITHUB_RUN_ID'])
-              require(re.fullmatch(r'[0-9a-f]{40}',head) and run_id>0,'RUN_IDENTITY')
-              with open(os.environ['GITHUB_EVENT_PATH']) as f: event=json.load(f)
-              require(event['repository']['full_name']==REPO and event['repository']['private'] is True
-                  and event['sender']['login']==OWNER and event['ref']=='refs/heads/'+BRANCH
-                  and event['before']=='0'*40 and event['after']==head and event['created'] is True
-                  and event['deleted'] is False and event['forced'] is False,'NEW_BRANCH_ONLY')
-              phase='source-and-history'
-              check_main()
-              commit=api('/git/commits/'+head)
-              require([p['sha'] for p in commit['parents']]==[SOURCE],'HELPER_PARENT')
-              source=api('/git/trees/'+TREE+'?recursive=1')
-              candidate=api('/git/trees/'+commit['tree']['sha']+'?recursive=1')
-              require(source.get('truncated') is False and candidate.get('truncated') is False,'TREE_TRUNCATED')
-              old={x['path']:(x['mode'],x['type'],x['sha']) for x in source['tree'] if x['type']!='tree'}
-              new={x['path']:(x['mode'],x['type'],x['sha']) for x in candidate['tree'] if x['type']!='tree'}
-              require(len(old)==112 and WORKFLOW not in old and len(new)==113
-                  and set(new)==set(old)|{WORKFLOW} and all(new[p]==old[p] for p in old)
-                  and new[WORKFLOW][:2]==('100644','blob'),'HELPER_SCOPE')
-              run=api('/actions/runs/'+str(run_id))
-              require(run['id']==run_id and run['head_sha']==head and run['head_branch']==BRANCH
-                  and run['event']=='push' and run['path']==WORKFLOW and run['run_attempt']==1
-                  and run['status']=='in_progress' and run['actor']['login']==OWNER
-                  and run['triggering_actor']['login']==OWNER,'RUN_CHANGED')
-              history=read_history()
-              fields=['id','path','event','head_sha','run_attempt','status','conclusion']
-              old_runs=sorted([{k:r[k] for k in fields} for r in history if r['head_sha']!=head],key=lambda r:r['id'])
-              require(len(old_runs)==123 and digest(old_runs)==BASELINE_HISTORY,'BASELINE_HISTORY_CHANGED')
-              own=[r for r in history if r['head_sha']==head]
-              require(1<=len(own)<=3 and len({r['path'] for r in own})==len(own)
-                  and all(r['path'] in [WORKFLOW,'.github/workflows/ci.yml','.github/workflows/hello.yml']
-                      and r['event']=='push' and r['head_branch']==BRANCH and r['run_attempt']==1 for r in own)
-                  and [r['id'] for r in own if r['path']==WORKFLOW]==[run_id],'HELPER_ALREADY_ATTEMPTED')
-              phase='before-patch'
-              before=check_release(OLD_TARGET)
-              check_main()
-              # One write only. A timeout/403/404 never causes a repeat or privilege fallback.
-              phase='patch'
-              patched=api('/releases/'+str(RELEASE),'PATCH',{'target_commitish':SOURCE})
-              require(patched['id']==RELEASE and patched['target_commitish']==SOURCE,'PATCH_RESPONSE')
-              phase='after-patch'
-              after=check_release(SOURCE)
-              keep=['id','node_id','tag_name','name','body','draft','prerelease','published_at','created_at','author']
-              require(all(before.get(k)==after.get(k) for k in keep),'RELEASE_FIELDS_CHANGED')
-              check_main()
-              receipt={'operation':'retarget-existing-draft-only','patchCount':1,'runId':run_id,
-                  'attempt':1,'helperCommit':head,'sourceCommit':SOURCE,'sourceTree':TREE,
-                  'releaseId':RELEASE,'tag':TAG,'beforeTarget':OLD_TARGET,'afterTarget':SOURCE,
-                  'draft':True,'prerelease':False,'publishedAt':None,'assets':[],
-                  'retainedCreationFailure':'RELEASE_COUNT_CHANGED','baselineHistorySha256':BASELINE_HISTORY,
-                  'releaseNameUnchanged':True,'releaseBodySha256':hashlib.sha256((after.get('body') or '').encode()).hexdigest(),
-                  'benchmarkExecuted':False,'browserExecuted':False}
-              print(json.dumps({'retargetReceipt':receipt,'receiptSha256':digest(receipt)},sort_keys=True),flush=True)
-          except Exception as exc:
-              print(json.dumps({'retargetFailed':True,'phase':phase,'patchAttempted':patch_attempted,
-                  'error':str(exc),'retryAllowed':False}),flush=True)
-              sys.exit(1)
-          PY
+          /usr/bin/python3 - "$RUNNER_TEMP/wp004a-tag-repair-program.py" <<'WP004A_VERIFY_EXECUTE'
+          import hashlib, sys
+          from pathlib import Path
+          if sys.version_info[:3] != (3, 12, 3):
+              raise SystemExit('PYTHON_VERSION')
+          program = Path(sys.argv[1])
+          source = program.read_bytes()
+          if hashlib.sha256(source).hexdigest() != 'f6e304fa60e82271acbcd4cf149d7d2e17a3b333066cb56c67b41574dd8b6d51':
+              raise SystemExit('ASSEMBLY_HASH_CHANGED')
+          sys.argv = [str(program), '--execute']
+          exec(compile(source, str(program), 'exec'), {'__name__': '__main__', '__file__': str(program)})
+          WP004A_VERIFY_EXECUTE
