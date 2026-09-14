@@ -2282,3 +2282,88 @@ draft, 17 nhánh và 129 run/0 Canvas; khác thì dừng. Sau review mới trìn
 commit/PR riêng trước thao tác ghi GitHub. Nếu sau này merge tài liệu vào main,
 S/T sẽ đổi; việc đó không tự đổi target draft hoặc chuyển authorization benchmark.
 Chủ dự án duyệt trong chat; agent tự lấy gói đã lưu và thực hiện phần được duyệt.
+
+## 27. Nghiệm thu riêng execution PR #15
+
+### 27.1. Điều kiện hiệu lực và phạm vi
+
+Nội dung nghiệm thu tại mục này chỉ có hiệu lực sau lời chấp nhận rõ ràng
+trong chat của chủ dự án đối với cả năm delta liên kết ở mục 27.2 và execution
+Ready/merge đưa đúng hai tài liệu của PR #15 vào main R. Kết quả review kỹ thuật,
+quyền đối soát hoặc quyền chuẩn bị tài liệu không tự thay cho quyết định đó.
+
+Khi điều kiện trên được đáp ứng, nghiệm thu chỉ bao gồm execution hai tài liệu
+`engine/ops/work-packages/WP-004a-canvas-spike.md` và `engine/ops/backlog.md`
+qua [PR #15](https://github.com/HungQuach301/meridian-studio/pull/15).
+Giữ nghiệm thu riêng tag/html_url tại mục 26. WP-004a vẫn `todo`; chưa nghiệm thu
+toàn bộ WP-004a hoặc benchmark, chưa mở WP-005/Layout Gallery.
+
+### 27.2. Checkpoint, delta và bằng chứng
+
+- R: `719647149266be902030f1f899bfd732427336b2`; tree R = tree D:
+  `a815757bf2f654a817c4ae612119274f09657c0a`.
+- Ordered parents của R: S `2e068c42e6c4b45dcabef6d3bc019b990d88a95f`,
+  D `ecdfe5d6cf118e72474be0377ba7ad321480b660`; D có parent duy nhất S.
+  Nhánh tài liệu vẫn D; helper C/CT và mốc T/M giữ nguyên trong hồ sơ. R khác M.
+- PR #15 closed/merged, draft=false, base main/S, head D, merge commit R;
+  maintainer_can_modify=false, merged_by HungQuach301, đúng nhãn engine ID
+  12112112801. Hai file tổng +175/−1, mode 100644; bảo toàn 110 blob/mode khác.
+  WP giữ prefix lịch sử 144449 byte; backlog chỉ đổi một ô, vẫn todo.
+- Chấp nhận riêng, khi đáp ứng mục 27.1, `pull_requests` từ `[PR #15]` sang `[]`
+  của đúng các run `34749461669`, `34749461641`, `34755880116`, `34755880159`,
+  `34756374431`. Mọi trường khác của năm run khớp, success/attempt 1.
+  129 run gốc nguyên full object; không tuyên bố full JSON 134 run trước merge
+  nguyên vẹn và không dùng projection bảy trường thay phép so đầy đủ.
+- Nhật ký ghi một Ready và một merge ở tầng agent/connector; không chứng minh
+  exactly-once tầng vận chuyển. Ready normalized merge_commit_sha=null khác
+  full GET trước merge có M/true/clean; giữ nguyên cả hai representation.
+- [CI 34765725655](https://github.com/HungQuach301/meridian-studio/actions/runs/34765725655)
+  và [Hello 34765725641](https://github.com/HungQuach301/meridian-studio/actions/runs/34765725641)
+  đều success/attempt 1, push/main/R, actor/triggering_actor HungQuach301.
+  Bốn job validate/guardrails-push/typecheck/verify lần lượt 31/19/26/78 giây;
+  bốn decoded log và raw wrapper khớp metadata. Checkout R và EVENT_CONTEXT
+  thật S→R được tách khỏi fixture. Không chạy lại test hoặc lấy lại log.
+- Heartbeat/send-hello skipped đúng điều kiện workflow. Giữ completed_at
+  sớm hơn started_at một giây trong raw; không sửa timestamp hoặc tính duration âm.
+- Đối soát tiếp hoàn tất 28/28 lời gọi đọc đã duyệt qua hai lượt; không phải
+  snapshot nguyên tử. Main được quan sát lúc 2026-09-13T22:50:47.162Z;
+  18 lượt còn lại kết thúc lúc 2026-09-13T23:06:27.142Z, không GET lại main.
+  Đủ 18 nhánh/136 run/0 Canvas. Hai tài liệu đọc tại R khớp nguyên byte/hash.
+- Ngoại lệ size đã được chủ dự án duyệt riêng: GET metadata repo và hai trường
+  repo nhúng trong GET PR #15 từ 1080 sang 1081. Collection PR có đúng 30 vị trí
+  đã liệt kê đổi 1080→1081, khớp index, PR number/id và repo ID/full_name theo
+  quy tắc có điều kiện đã duyệt; mọi trường khác khớp. Không mở ngoại lệ toàn cục.
+
+### 27.3. Bảo lưu và giới hạn
+
+Giữ nguyên mọi nguồn/review/preflight/STOP/log lồng và các cờ lịch sử tại thời
+điểm lập. Gói review gốc 9122748 byte, SHA-256
+`6365472eab8926fd98aa5ef4ef795ce0bda2b4a914c9e0ea18bb44861981ac93`;
+gói execution STOP bên trong 8745221 byte, SHA-256
+`ef660a81d17225208e45f16d8eeea588fb1e2cdbdc32faf6cb1e34c47d1f86b6`.
+Đối soát bổ sung nằm trong `Meridian-WP004a-completed-readonly-proposal-15-7196471.zip`;
+biên nhận byte/hash của gói được bàn giao riêng trong chat, không tự tham chiếu hash.
+
+Giữ hai failure `34703610757 DRAFT_CHANGED`, `34690874856 RELEASE_COUNT_CHANGED`,
+hai moderate và mọi vật chứng thiếu; ReadTimeout mở PR và RemoteProtocolError
+GET assets cũ không được thay bằng response mới. Giữ ghi chú missing/null,
+blocked/clean, checker v1 lịch sử còn thiếu, checker v1 mới/output so sai và chú
+giải jobs_url/logs_url của GET attempt khác GET run. Giữ cả lỗi đọc Markdown,
+assertion URL lịch sử và các phân tích bổ sung; không sửa ngược raw hoặc lịch sử.
+
+Draft 387547778 vẫn target S, tag wp004a-evidence-7f2a966, html_url hậu tố
+untagged-c15f25bc17abf6d8b00f; repo private, draft=true, prerelease=false,
+published_at=null và assets=[] ở cả hai endpoint. Main R không cấp quyền retarget
+hoặc chuyển authorization benchmark. Chưa chứng minh response còn thiếu,
+binary log archive, browser/render/RAM/hiệu năng hoặc chất lượng hình ảnh.
+
+Giữ 0,030 USD push + 0,048 USD PR = 0,078 USD cũ. Merge ước tính 0,030 USD từ
+1+1+1+2 phút làm tròn từng job theo 0,006 USD/phút; tổng 0,108 USD chỉ là ước tính.
+Trần 0,66 USD, phần đã tiêu và sổ cũ nguyên; phạm vi merge hai run/bốn job/
+40 phút cấu hình/0,24 USD đã dùng, không cấp lại. 150 phút/0,90 USD danh nghĩa
+không là ngân sách mới. Billing/quota/cache/retention chưa xác minh.
+
+Giữ slot `wp004a-7f2a966-01`, attempt 1, mọi giới hạn và sổ thời gian còn lại.
+Nghiệm thu và chuẩn bị hồ sơ không cấp quyền ghi GitHub, Ready/merge/PATCH,
+dispatch/retry/rerun, provider, browser/benchmark, đổi quyền/token/settings/quota
+hoặc triển khai. Mọi bước ghi hoặc thực thi tiếp theo phải được xét riêng.
