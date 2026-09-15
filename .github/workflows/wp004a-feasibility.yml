@@ -1,0 +1,404 @@
+name: WP004a feasibility (separate execution approval)
+
+# Q/DQ source preparation only. No execution permission is conferred by this file.
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact merged workflow commit separately approved for one attempt
+        required: true
+        type: string
+      decision_sha256:
+        description: Reviewed DQ decision digest
+        required: true
+        type: string
+      execution_nonce:
+        description: Approved one-use feasibility identifier
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp004a-feasibility-01
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  probe:
+    if: github.repository == 'HungQuach301/meridian-studio' && github.actor == 'HungQuach301' && github.triggering_actor == 'HungQuach301' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: One bounded synthetic probe with create-only evidence
+        env:
+          PROBE_SOURCE_SHA: ${{ inputs.source_sha }}
+          PROBE_DECISION_SHA256: ${{ inputs.decision_sha256 }}
+          PROBE_NONCE: ${{ inputs.execution_nonce }}
+          PROBE_TOKEN: ${{ github.token }}
+          LANG: C.UTF-8
+          LC_ALL: C.UTF-8
+          TZ: UTC
+        run: |
+          umask 077
+          # 60-second payload deadline plus at most 2 seconds kill grace.
+          /usr/bin/timeout --signal=TERM --kill-after=2s 60s /usr/bin/python3 -I - <<'PY'
+          import base64
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import signal
+          import subprocess
+          import sys
+          import time
+          
+          # Source only: this body has NOT been executed or compiled in preparation Q/DQ.
+          REPO = 'HungQuach301/meridian-studio'
+          OWNER = 'HungQuach301'
+          BRANCH = 'evidence/wp004a-feasibility-01'
+          PREFIX = 'evidence/wp004a-feasibility/01/'
+          DECISION = '66e7916ce8d678e5d4598809fdc33b032002e826a7d777053c011dffea77a4f9'
+          NONCE = 'wp004a-feasibility-01'
+          CAP = 65536
+          API_RESPONSE_CAP = 262144
+          HEADER_CAPTURE_CAP = 32768
+          started = time.monotonic()
+          os.umask(0o077)
+          
+          def require(ok, code):
+              if not ok:
+                  raise RuntimeError(code)
+          
+          def encode(value):
+              return (json.dumps(value, ensure_ascii=True, sort_keys=True,
+                                 separators=(',', ':'), allow_nan=False) + '\n').encode('ascii')
+          
+          def sha(data):
+              return hashlib.sha256(data).hexdigest()
+          
+          def reserve_write(extra):
+              occupied = sum(p.stat().st_size for p in cwd.iterdir() if p.is_file())
+              require(occupied + extra <= 8 * 1024 * 1024, 'SCRATCH_WRITE_CAP')
+          
+          def blob(data):
+              return hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+          
+          def read_small(path, cap=8192):
+              with open(path, 'rb') as stream:
+                  data = stream.read(cap + 1)
+              require(len(data) <= cap, 'LOCAL_READ_CAP')
+              return data
+          
+          def observed(path, cap=8192):
+              try:
+                  return read_small(path, cap).decode('utf-8', errors='strict')
+              except (OSError, UnicodeError, RuntimeError):
+                  return None
+          
+          require(sys.version_info[:2] == (3, 12), 'BOOTSTRAP_PYTHON_3_12_REQUIRED')
+          require(os.environ.get('GITHUB_REPOSITORY') == REPO, 'REPOSITORY')
+          require(os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch', 'EVENT')
+          require(os.environ.get('GITHUB_REF') == 'refs/heads/main', 'REF')
+          require(os.environ.get('GITHUB_ACTOR') == OWNER and
+                  os.environ.get('GITHUB_TRIGGERING_ACTOR') == OWNER, 'ACTOR')
+          require(os.environ.get('GITHUB_RUN_ATTEMPT') == '1', 'ATTEMPT')
+          source = os.environ.get('PROBE_SOURCE_SHA', '')
+          require(re.fullmatch('[0-9a-f]{40}', source) and source != '0' * 40, 'SOURCE_FORMAT')
+          require(source == os.environ.get('GITHUB_SHA') == os.environ.get('GITHUB_WORKFLOW_SHA'), 'SOURCE_BINDING')
+          require(os.environ.get('GITHUB_WORKFLOW_REF') ==
+                  REPO + '/.github/workflows/wp004a-feasibility.yml@refs/heads/main', 'WORKFLOW_REF')
+          require(os.environ.get('PROBE_DECISION_SHA256') == DECISION, 'DECISION')
+          require(os.environ.get('PROBE_NONCE') == NONCE, 'NONCE')
+          run = os.environ.get('GITHUB_RUN_ID', '')
+          require(re.fullmatch('[1-9][0-9]*', run), 'RUN_ID')
+          token = os.environ.pop('PROBE_TOKEN', '')
+          require(bool(token), 'TOKEN_MISSING')
+          base = Path(os.environ['RUNNER_TEMP']).resolve()
+          cwd = base / ('wp004a-feasibility-' + run + '-1')
+          cwd.mkdir(mode=0o700, exist_ok=False)
+          os.chdir(cwd)
+          clean_env = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'LC_ALL': 'C.UTF-8',
+                       'TZ': 'UTC', 'HOME': str(cwd)}
+          identity = {'repository': REPO, 'sourceCommit': source, 'runId': run,
+                      'attempt': 1, 'decisionSHA256': DECISION, 'nonce': NONCE,
+                      'workflowRef': os.environ['GITHUB_WORKFLOW_REF']}
+          cases = {}
+          receipts = []
+          files = []
+          api_failed = False
+          
+          # Separate uploader process receives the token through stdin only; fixtures get clean_env.
+          # http.client does not implement redirect-following or retries here.
+          UPLOADER = r'''
+          import base64, hashlib, http.client, json, ssl, sys
+          request = json.loads(sys.stdin.buffer.read(120000))
+          payload = request['payload'].encode('ascii')
+          connection = http.client.HTTPSConnection('api.github.com', timeout=8,
+                                                  context=ssl.create_default_context())
+          record = {'status': None, 'headersView': None, 'responseBodyBase64': None,
+                    'wireHeaders': None, 'error': None}
+          try:
+              connection.request('PUT', request['path'], body=payload, headers={
+                  'Authorization': 'Bearer ' + request['token'],
+                  'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json',
+                  'User-Agent': 'Meridian-WP004a-feasibility-01'})
+              response = connection.getresponse()
+              record['status'] = response.status
+              headers = response.getheaders()
+              header_bytes = json.dumps(headers, ensure_ascii=True).encode('ascii')
+              if len(header_bytes) > 32768:
+                  raise RuntimeError('HEADER_CAPTURE_CAP')
+              # This is a parsed header view, not a raw wire-header guarantee.
+              record['headersView'] = headers
+              body = response.read(262145)
+              record['responseBodyBytesObserved'] = len(body)
+              record['responseBodySHA256'] = hashlib.sha256(body).hexdigest()
+              record['responseBodyBase64'] = base64.b64encode(body[:262144]).decode('ascii')
+              record['bodyComplete'] = len(body) <= 262144
+              if len(body) > 262144:
+                  raise RuntimeError('RESPONSE_CAP')
+              if response.status != 201:
+                  raise RuntimeError('HTTP_STATUS_NOT_201')
+          except Exception as error:
+              record['error'] = type(error).__name__ + (':' + str(error) if isinstance(error, RuntimeError) else '')
+          finally:
+              connection.close()
+          print(json.dumps(record, ensure_ascii=True, separators=(',', ':')))
+          '''
+          
+          def capture_record(name, value):
+              data = encode(value)
+              require(len(data) <= 524288, 'RECEIPT_CAP')
+              reserve_write(len(data))
+              with open(name, 'xb') as stream:
+                  stream.write(data)
+                  stream.flush()
+                  os.fsync(stream.fileno())
+              # Logs are a secondary channel. Remote files/readback remain necessary.
+              print('PROBE_RECEIPT ' + base64.b64encode(data).decode('ascii'), flush=True)
+          
+          def upload(name, document):
+              global api_failed
+              require(not api_failed and name in ('boot.json', 'checkpoint.json', 'final.json'), 'UPLOAD_GUARD')
+              require(time.monotonic() - started < 60, 'PAYLOAD_DEADLINE')
+              require(all(f['name'] != name for f in files), 'NO_DUPLICATE_WRITE')
+              data = encode(document)
+              require(len(data) <= CAP and sum(f['bytes'] for f in files) + len(data) <= 3 * CAP, 'OUTPUT_CAP')
+              reserve_write(len(data))
+              with open(name, 'xb') as stream:
+                  stream.write(data)
+                  stream.flush()
+                  os.fsync(stream.fileno())
+              expected_blob = blob(data)
+              payload = encode({'message': 'evidence: WP004a feasibility ' + name,
+                                'branch': BRANCH, 'content': base64.b64encode(data).decode('ascii')})
+              request = encode({'token': token, 'path': '/repos/' + REPO + '/contents/' + PREFIX + name,
+                                'payload': payload.decode('ascii')})
+              require(len(request) < 120000, 'REQUEST_CAP')
+              process = subprocess.Popen([sys.executable, '-I', '-c', UPLOADER],
+                                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                         stderr=subprocess.PIPE, env=clean_env, start_new_session=True)
+              try:
+                  stdout, stderr = process.communicate(request, timeout=10)
+              except subprocess.TimeoutExpired:
+                  api_failed = True
+                  try:
+                      os.killpg(process.pid, signal.SIGKILL)
+                  except ProcessLookupError:
+                      pass
+                  stdout, stderr = process.communicate(timeout=2)
+                  capture_record(name + '.receipt.json', {'status': None, 'error': 'UPLOADER_TIMEOUT_OUTCOME_UNKNOWN',
+                                                         'stdoutBase64': base64.b64encode(stdout[:262144]).decode(),
+                                                         'stderrSHA256': sha(stderr), 'requestFileSHA256': sha(data)})
+                  raise RuntimeError('UPLOAD_OUTCOME_UNKNOWN')
+              try:
+                  require(process.returncode == 0 and len(stdout) <= 524288 and len(stderr) <= 8192, 'UPLOADER_PROCESS')
+                  result = json.loads(stdout)
+                  capture_record(name + '.receipt.json', result)
+                  require(result['error'] is None and result['status'] == 201 and result['bodyComplete'], 'UPLOAD_RESPONSE')
+                  api = json.loads(base64.b64decode(result['responseBodyBase64']))
+                  require(api['content']['path'] == PREFIX + name and api['content']['sha'] == expected_blob,
+                          'UPLOADED_BLOB_BINDING')
+                  commit = api['commit']['sha']
+                  require(re.fullmatch('[0-9a-f]{40}', commit), 'COMMIT_FORMAT')
+                  require(api['commit']['tree']['sha'] and api['commit']['parents'], 'COMMIT_RECEIPT_INCOMPLETE')
+                  if receipts:
+                      require([p['sha'] for p in api['commit']['parents']] == [receipts[-1]['commit']], 'EVIDENCE_PARENT')
+                  else:
+                      require([p['sha'] for p in api['commit']['parents']] == [source], 'EVIDENCE_BRANCH_BASE')
+                  receipt = {'name': name, 'bytes': len(data), 'sha256': sha(data), 'blob': expected_blob,
+                             'commit': commit, 'responseBodySHA256': result['responseBodySHA256'], 'status': 201}
+                  receipts.append(receipt)
+                  files.append({'name': name, 'bytes': len(data)})
+                  print('PROBE_COMMIT ' + encode(receipt).decode('ascii').strip(), flush=True)
+              except Exception:
+                  api_failed = True
+                  raise
+          
+          def mark(case, status, evidence):
+              cases[case] = {'status': status, 'evidence': evidence}
+          
+          def inventory():
+              executable = Path(sys.executable).resolve()
+              require(executable.stat().st_size <= 32 * 1024 * 1024, 'PYTHON_BINARY_SIZE')
+              digest = hashlib.sha256()
+              with executable.open('rb') as stream:
+                  for chunk in iter(lambda: stream.read(65536), b''):
+                      digest.update(chunk)
+              mark('P02', 'OBSERVED', {'pythonVersion': sys.version, 'executable': str(executable),
+                                     'binaryBytes': executable.stat().st_size, 'binarySHA256': digest.hexdigest(),
+                                     'pythonProvenance': None, 'node20BinaryPin': None, 'npmPin': None,
+                                     'runnerOS': os.environ.get('RUNNER_OS'), 'runnerArch': os.environ.get('RUNNER_ARCH'),
+                                     'imageOS': os.environ.get('ImageOS'), 'imageVersion': os.environ.get('ImageVersion')})
+              affinity = sorted(os.sched_getaffinity(0))
+              require(affinity, 'EMPTY_AFFINITY')
+              vfs = os.statvfs(cwd)
+              mark('P03', 'OBSERVED', {'cpuAffinity': affinity, 'diskAvailableBytes': vfs.f_bavail * vfs.f_frsize,
+                                     'selfCgroup': observed('/proc/self/cgroup'),
+                                     'memoryMax': observed('/sys/fs/cgroup/memory.max'),
+                                     'cpuMax': observed('/sys/fs/cgroup/cpu.max'),
+                                     'pidsMax': observed('/sys/fs/cgroup/pids.max'),
+                                     'hardWholeJob4GiBCap': None})
+              return affinity[:2]
+          
+          CHILD = r'''
+          import json, os, sys, time
+          instruction = json.loads(sys.stdin.readline())
+          os.sched_setaffinity(0, set(instruction['affinity']))
+          data = bytearray(4 * 1024 * 1024)
+          for i in range(0, len(data), 4096): data[i] = 1
+          print(json.dumps({'pid': os.getpid(), 'affinity': sorted(os.sched_getaffinity(0)),
+                            'cgroup': open('/proc/self/cgroup').read(), 'allocationBytes': len(data)}), flush=True)
+          time.sleep(0.1)
+          sys.exit(instruction['exitCode'])
+          '''
+          
+          cgroup = None
+          active_children = []
+          
+          def child_case(index, affinity, code):
+              require(time.monotonic() - started < 60, 'PAYLOAD_DEADLINE')
+              child = subprocess.Popen([sys.executable, '-I', '-c', CHILD], stdin=subprocess.PIPE,
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                       env=clean_env, start_new_session=True)
+              active_children.append(child)
+              try:
+                  if cgroup is not None:
+                      (cgroup / 'cgroup.procs').write_text(str(child.pid), encoding='ascii')
+                  out, err = child.communicate(encode({'affinity': affinity, 'exitCode': code}), timeout=3)
+                  require(len(out) <= 8192 and len(err) <= 8192, 'CHILD_OUTPUT_CAP')
+                  require(child.returncode == code, 'CHILD_EXIT')
+                  record = json.loads(out)
+                  require(record['affinity'] == affinity and record['pid'] == child.pid, 'CHILD_IDENTITY_AFFINITY')
+                  if cgroup is not None:
+                      require(record['cgroup'].strip() == '0::/' + cgroup.name, 'CHILD_CGROUP_MEMBERSHIP')
+                  return {'index': index, 'expectedExit': code, 'actualExit': child.returncode,
+                          'stdout': record, 'stderrSHA256': sha(err), 'waitCompleted': True}
+              finally:
+                  if child.poll() is None:
+                      os.killpg(child.pid, signal.SIGKILL)
+                      child.communicate(timeout=2)
+                  active_children.remove(child)
+          
+          primary = None
+          secondary = []
+          try:
+              mark('P01', 'PASS', identity)
+              upload('boot.json', {'schema': 'Meridian-feasibility-01', 'phase': 'boot', 'identity': identity,
+                                   'productionIO': None, 'productionPrivacy': None,
+                                   'status': 'STARTED_NOT_ACCEPTED'})
+              affinity = inventory()
+              try:
+                  # Only delegated cgroup-v2 at root; no sudo, systemd or namespace fallback.
+                  require(observed('/proc/self/cgroup') == '0::/\n', 'CGROUP_LAYOUT_UNSUPPORTED')
+                  parent = Path('/sys/fs/cgroup')
+                  cgroup = parent / ('wp004a-probe-' + run)
+                  cgroup.mkdir()
+                  for field, value in [('memory.max', '67108864'), ('pids.max', '16'), ('cpu.max', '100000 100000')]:
+                      (cgroup / field).write_text(value, encoding='ascii')
+                      require((cgroup / field).read_text().strip() == value, 'CGROUP_LIMIT_READBACK')
+                  mark('P05', 'CONFIGURED_PENDING_CHILD', {'memoryMax': 67108864, 'pidsMax': 16,
+                                                         'cpuMax': '100000 100000'})
+              except (OSError, RuntimeError) as error:
+                  mark('P05', 'UNSUPPORTED', {'errorType': type(error).__name__, 'enforcedWholeJobCap': None})
+                  if cgroup is not None and cgroup.exists():
+                      cgroup.rmdir()
+                  cgroup = None
+              children = [child_case(1, affinity, 0), child_case(2, affinity, 0)]
+              mark('P04', 'PASS', {'selectedAffinity': affinity, 'children': children})
+              mark('P06', 'PASS', {'closedChildren': children, 'unexpectedDescendants': 'not created by fixed child source'})
+              if cgroup is not None:
+                  mark('P05', 'PASS', {'membershipVerified': True, 'memoryMax': 67108864,
+                                       'cpuMax': '100000 100000', 'pidsMax': 16,
+                                       'OOMStressTest': 'NOT_RUN', 'productionCapProof': False})
+              mark('P07', 'PENDING', {'reason': 'checkpoint must be committed before synthetic failure'})
+              upload('checkpoint.json', {'schema': 'Meridian-feasibility-01', 'phase': 'checkpoint',
+                                         'identity': identity, 'cases': cases, 'priorReceipts': receipts,
+                                         'nextOperation': 'one synthetic child expected exit 7'})
+              failed_child = child_case(3, affinity, 7)
+              mark('P07', 'PASS_PENDING_REMOTE_READBACK', {'expectedPrimary': 'SYNTHETIC_EXIT_7',
+                                                        'child': failed_child, 'checkpointCommit': receipts[-1]['commit'],
+                                                        'actualProductionFailure': False})
+              path = cwd / 'sealed-fixture.txt'
+              reserve_write(64)
+              with path.open('xb') as stream:
+                  stream.write(b'synthetic sealed fixture\n')
+                  stream.flush()
+                  os.fsync(stream.fileno())
+              one = read_small(path)
+              two = read_small(path)
+              require(one == two, 'SEAL_CHANGED')
+              mark('P08', 'PASS', {'closedBeforeSeal': True, 'bytes': len(one), 'sha256': sha(one),
+                                   'productionConcurrencyProof': False})
+          except Exception as error:
+              primary = {'type': type(error).__name__,
+                         'code': str(error) if type(error) is RuntimeError else 'LOCAL_OPERATION_FAILED'}
+          finally:
+              for child in list(active_children):
+                  try:
+                      os.killpg(child.pid, signal.SIGKILL)
+                      child.communicate(timeout=2)
+                  except Exception as error:
+                      secondary.append({'cleanup': type(error).__name__})
+              if cgroup is not None:
+                  try:
+                      require(not (cgroup / 'cgroup.procs').read_text().strip(), 'CGROUP_NOT_EMPTY')
+                      cgroup.rmdir()
+                  except Exception as error:
+                      secondary.append({'cgroupCleanup': type(error).__name__})
+          
+          elapsed = time.monotonic() - started
+          if elapsed > 60 and primary is None:
+              primary = {'type': 'RuntimeError', 'code': 'PAYLOAD_TIME_CAP'}
+          mark('P09', 'PENDING_FINAL_WRITE', {'completedCreates': len(receipts), 'retryCount': 0})
+          mark('P10', 'NOT_RUN_AGENT_READBACK_REQUIRED', None)
+          mark('P11', 'OBSERVED', {'primary': primary, 'secondary': secondary,
+                                   'APIOutcomeUnknownOrFailed': api_failed, 'rerun': 'FORBIDDEN'})
+          mark('P12', 'OBSERVED', {'elapsedSecondsBeforeFinalWrite': elapsed,
+                                   'priorJSONBytes': sum(f['bytes'] for f in files),
+                                   'actualBillUSD': None, 'remainingQuota': None})
+          status = 'FAILED' if primary or secondary else 'OBSERVED_PARTIAL'
+          if not api_failed:
+              try:
+                  upload('final.json', {'schema': 'Meridian-feasibility-01', 'phase': 'final',
+                                        'identity': identity, 'status': status, 'cases': cases,
+                                        'priorReceipts': receipts, 'primary': primary, 'secondary': secondary,
+                                        'WP004a': 'NOT_ACCEPTED', 'WP005': 'CLOSED',
+                                        'productionIO': None, 'productionPrivacy': None})
+              except Exception as error:
+                  print('PROBE_FINAL_UNCONFIRMED ' + type(error).__name__, flush=True)
+                  sys.exit(1)
+          else:
+              print('PROBE_STOP_NO_FURTHER_API', flush=True)
+              sys.exit(1)
+          print('PROBE_FINISHED_READBACK_REQUIRED', flush=True)
+          sys.exit(1 if primary or secondary else 0)
+          PY
