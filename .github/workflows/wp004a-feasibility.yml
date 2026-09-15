@@ -1,6 +1,6 @@
 name: WP004a feasibility (separate execution approval)
 
-# Q/DQ source preparation only. No execution permission is conferred by this file.
+# E-NEXT-02 offline candidate. Requires separate execution approval; no old slot reuse.
 on:
   workflow_dispatch:
     inputs:
@@ -9,7 +9,7 @@ on:
         required: true
         type: string
       decision_sha256:
-        description: Reviewed DQ decision digest
+        description: Reviewed E-NEXT-02 execution decision digest
         required: true
         type: string
       execution_nonce:
@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: wp004a-feasibility-01
+  group: wp004a-feasibility-02
   cancel-in-progress: false
 
 defaults:
@@ -53,20 +53,20 @@ jobs:
           import hashlib
           import json
           import os
-          from pathlib import Path
+          from pathlib import Path, PurePosixPath
           import re
           import signal
           import subprocess
           import sys
           import time
           
-          # Source only: this body has NOT been executed or compiled in preparation Q/DQ.
+          # Source only: this revised body and validation harness have NOT been run in offline preparation.
           REPO = 'HungQuach301/meridian-studio'
           OWNER = 'HungQuach301'
-          BRANCH = 'evidence/wp004a-feasibility-01'
-          PREFIX = 'evidence/wp004a-feasibility/01/'
-          DECISION = '66e7916ce8d678e5d4598809fdc33b032002e826a7d777053c011dffea77a4f9'
-          NONCE = 'wp004a-feasibility-01'
+          BRANCH = 'evidence/wp004a-feasibility-02'
+          PREFIX = 'evidence/wp004a-feasibility/02/'
+          DECISION = 'c836cfe42c115f34ab8330b25df6a477452daa9055c6f0aa114e4a25c3c2471d'
+          NONCE = 'wp004a-feasibility-02'
           CAP = 65536
           API_RESPONSE_CAP = 262144
           HEADER_CAPTURE_CAP = 32768
@@ -94,7 +94,11 @@ jobs:
           def read_small(path, cap=8192):
               with open(path, 'rb') as stream:
                   data = stream.read(cap + 1)
-              require(len(data) <= cap, 'LOCAL_READ_CAP')
+              if len(data) > cap:
+                  print('PROBE_LOCAL_READ_LIMIT ' + encode({'path': str(path), 'cap': cap,
+                        'observedBytes': len(data), 'prefixBase64': base64.b64encode(data[:cap]).decode('ascii'),
+                        'complete': False}).decode('ascii').strip(), flush=True)
+                  raise RuntimeError('LOCAL_READ_CAP')
               return data
           
           def observed(path, cap=8192):
@@ -197,6 +201,7 @@ jobs:
                   stream.write(data)
                   stream.flush()
                   os.fsync(stream.fileno())
+              print('PROBE_DOCUMENT ' + name + ' ' + base64.b64encode(data).decode('ascii'), flush=True)
               expected_blob = blob(data)
               payload = encode({'message': 'evidence: WP004a feasibility ' + name,
                                 'branch': BRANCH, 'content': base64.b64encode(data).decode('ascii')})
@@ -258,16 +263,117 @@ jobs:
                                      'pythonProvenance': None, 'node20BinaryPin': None, 'npmPin': None,
                                      'runnerOS': os.environ.get('RUNNER_OS'), 'runnerArch': os.environ.get('RUNNER_ARCH'),
                                      'imageOS': os.environ.get('ImageOS'), 'imageVersion': os.environ.get('ImageVersion')})
+              require(sys.version_info[:3] == (3, 12, 3) and digest.hexdigest() ==
+                  'a92f0f95e883390c7256b2e441484aac06b1002dbe1d924141a77c8d82f96223',
+                  'OBSERVED_PYTHON_PIN_CHANGED')
               affinity = sorted(os.sched_getaffinity(0))
               require(affinity, 'EMPTY_AFFINITY')
               vfs = os.statvfs(cwd)
               mark('P03', 'OBSERVED', {'cpuAffinity': affinity, 'diskAvailableBytes': vfs.f_bavail * vfs.f_frsize,
                                      'selfCgroup': observed('/proc/self/cgroup'),
-                                     'memoryMax': observed('/sys/fs/cgroup/memory.max'),
-                                     'cpuMax': observed('/sys/fs/cgroup/cpu.max'),
-                                     'pidsMax': observed('/sys/fs/cgroup/pids.max'),
+                                     'mountRootMemoryMax': observed('/sys/fs/cgroup/memory.max'),
+                                     'mountRootCpuMax': observed('/sys/fs/cgroup/cpu.max'),
+                                     'mountRootPidsMax': observed('/sys/fs/cgroup/pids.max'),
                                      'hardWholeJob4GiBCap': None})
               return affinity[:2]
+          
+          def unified_path(text):
+              require(isinstance(text, str), 'CGROUP_TEXT_MISSING')
+              rows = text.splitlines()
+              require(len(rows) == 1 and rows[0].startswith('0::'), 'CGROUP_V2_ONLY')
+              value = rows[0][3:]
+              require(value.startswith('/') and not value.startswith('//') and '\x00' not in value,
+                      'CGROUP_PATH_FORMAT')
+              require(not any(x in ('.', '..') for x in value.split('/')), 'CGROUP_PATH_TRAVERSAL')
+              require(str(PurePosixPath(value)) == value, 'CGROUP_PATH_CANONICAL')
+              return value
+          
+          def map_cgroup_v2(cgroup_text, mountinfo):
+              logical = PurePosixPath(unified_path(cgroup_text))
+              require(isinstance(mountinfo, str), 'MOUNTINFO_MISSING')
+              selected = []
+              for line in mountinfo.splitlines():
+                  halves = line.split(' - ')
+                  require(len(halves) == 2, 'MOUNTINFO_FORMAT')
+                  right = halves[1].split()
+                  require(len(right) >= 3, 'MOUNTINFO_FIELDS')
+                  if right[0] != 'cgroup2':
+                      continue
+                  left = halves[0].split()
+                  require(len(left) >= 6 and '\\' not in line, 'CGROUP_MOUNT_AMBIGUOUS')
+                  mount_root = PurePosixPath(left[3])
+                  mount_point = PurePosixPath(left[4])
+                  require(str(mount_point) == '/sys/fs/cgroup' and left[4] == str(mount_point),
+                          'CGROUP_MOUNT_LOCATION')
+                  require(left[3].startswith('/') and not left[3].startswith('//') and
+                          not any(x in ('.', '..') for x in left[3].split('/')) and
+                          str(mount_root) == left[3], 'CGROUP_MOUNT_ROOT')
+                  require('rw' in left[5].split(',') and 'rw' in right[2].split(','), 'CGROUP_MOUNT_READ_ONLY')
+                  require(logical.is_relative_to(mount_root), 'CGROUP_NAMESPACE_UNMAPPED')
+                  mapped = mount_point / logical.relative_to(mount_root)
+                  selected.append({'logicalPath': str(logical), 'mountRoot': str(mount_root),
+                                   'mountPoint': str(mount_point), 'parentPath': str(mapped),
+                                   'mountInfoLine': line})
+              require(len(selected) == 1, 'CGROUP_MOUNT_NOT_UNIQUE')
+              return selected[0]
+          
+          def configure_cgroup():
+              global cgroup, cgroup_owned, expected_child_cgroup
+              stage = 'read_layout'
+              diagnostics = {'mapping': None, 'controllers': None, 'subtreeControl': None,
+                             'parentSelfMembership': None, 'enforcedWholeJobCap': None}
+              try:
+                  cg = read_small('/proc/self/cgroup').decode('utf-8')
+                  mi = read_small('/proc/self/mountinfo', 65536).decode('utf-8')
+                  diagnostics['selfCgroup'] = cg
+                  diagnostics['mountInfoBytes'] = len(mi.encode('utf-8'))
+                  diagnostics['mountInfoSHA256'] = sha(mi.encode('utf-8'))
+                  cgroup_lines = [x for x in mi.splitlines() if ' - cgroup2 ' in x]
+                  layout_record = encode({'selfCgroup': cg, 'cgroupMountLines': cgroup_lines,
+                                          'mountInfoBytes': diagnostics['mountInfoBytes'],
+                                          'mountInfoSHA256': diagnostics['mountInfoSHA256']})
+                  print('CGROUP_LAYOUT_RECORD ' + base64.b64encode(layout_record).decode('ascii'), flush=True)
+                  require(len(layout_record) <= 8192, 'CGROUP_DIAGNOSTIC_CAP')
+                  diagnostics['cgroupMountLines'] = cgroup_lines
+                  stage = 'map_layout'
+                  mapping = map_cgroup_v2(cg, mi)
+                  diagnostics['mapping'] = mapping
+                  parent = Path(mapping['parentPath'])
+                  require(str(parent.resolve(strict=True)) == str(parent), 'CGROUP_PARENT_SYMLINK')
+                  stage = 'read_delegation'
+                  controllers = read_small(parent / 'cgroup.controllers').decode('ascii').strip().split()
+                  enabled = read_small(parent / 'cgroup.subtree_control').decode('ascii').strip().split()
+                  diagnostics['parentLimits'] = {field: observed(parent / field)
+                                                 for field in ('memory.max', 'cpu.max', 'pids.max')}
+                  diagnostics['controllers'] = controllers
+                  diagnostics['subtreeControl'] = enabled
+                  parent_pids = read_small(parent / 'cgroup.procs', 65536).decode('ascii').split()
+                  diagnostics['parentSelfMembership'] = str(os.getpid()) in parent_pids
+                  require(diagnostics['parentSelfMembership'], 'CGROUP_PARENT_BINDING')
+                  require({'cpu', 'memory', 'pids'} <= set(controllers), 'CGROUP_CONTROLLERS_UNAVAILABLE')
+                  require({'cpu', 'memory', 'pids'} <= set(enabled), 'CGROUP_CONTROLLERS_NOT_DELEGATED')
+                  stage = 'create_private_child'
+                  candidate = parent / ('wp004a-probe-02-' + run)
+                  candidate.mkdir(mode=0o700)
+                  cgroup = candidate
+                  cgroup_owned = True
+                  expected_child_cgroup = str(PurePosixPath(mapping['logicalPath']) / candidate.name)
+                  stage = 'write_private_limits'
+                  for field, value in [('memory.max', '67108864'), ('pids.max', '16'), ('cpu.max', '100000 100000')]:
+                      (cgroup / field).write_text(value, encoding='ascii')
+                      require(read_small(cgroup / field).decode('ascii').strip() == value, 'CGROUP_LIMIT_READBACK')
+                  mark('P05', 'CONFIGURED_PENDING_CHILD', {'diagnostics': diagnostics, 'memoryMax': 67108864,
+                       'pidsMax': 16, 'cpuMax': '100000 100000', 'expectedMembership': expected_child_cgroup})
+                  return True
+              except (OSError, RuntimeError, UnicodeError) as error:
+                  detail = {'stage': stage, 'type': type(error).__name__, 'errno': getattr(error, 'errno', None),
+                            'code': str(error) if type(error) is RuntimeError else None}
+                  mark('P05', 'FAILED' if cgroup_owned or isinstance(error, FileExistsError) else 'UNSUPPORTED',
+                       {'diagnostics': diagnostics, 'error': detail, 'enforcedWholeJobCap': None})
+                  if cgroup_owned or isinstance(error, FileExistsError) or (isinstance(error, RuntimeError) and
+                          str(error) in ('LOCAL_READ_CAP', 'CGROUP_DIAGNOSTIC_CAP')):
+                      raise
+                  return False
           
           CHILD = r'''
           import json, os, sys, time
@@ -282,6 +388,8 @@ jobs:
           '''
           
           cgroup = None
+          cgroup_owned = False
+          expected_child_cgroup = None
           active_children = []
           
           def child_case(index, affinity, code):
@@ -299,54 +407,54 @@ jobs:
                   record = json.loads(out)
                   require(record['affinity'] == affinity and record['pid'] == child.pid, 'CHILD_IDENTITY_AFFINITY')
                   if cgroup is not None:
-                      require(record['cgroup'].strip() == '0::/' + cgroup.name, 'CHILD_CGROUP_MEMBERSHIP')
+                      require(unified_path(record['cgroup']) == expected_child_cgroup, 'CHILD_CGROUP_MEMBERSHIP')
                   return {'index': index, 'expectedExit': code, 'actualExit': child.returncode,
                           'stdout': record, 'stderrSHA256': sha(err), 'waitCompleted': True}
               finally:
-                  if child.poll() is None:
-                      os.killpg(child.pid, signal.SIGKILL)
-                      child.communicate(timeout=2)
-                  active_children.remove(child)
+                  try:
+                      if child.poll() is None:
+                          try:
+                              os.killpg(child.pid, signal.SIGKILL)
+                          except ProcessLookupError:
+                              pass
+                          child.communicate(timeout=2)
+                  except Exception as cleanup_error:
+                      secondary.append({'childCleanup': type(cleanup_error).__name__, 'pid': child.pid,
+                                        'childStillRunning': child.poll() is None})
+                  finally:
+                      active_children.remove(child)
           
           primary = None
           secondary = []
           try:
               mark('P01', 'PASS', identity)
-              upload('boot.json', {'schema': 'Meridian-feasibility-01', 'phase': 'boot', 'identity': identity,
+              upload('boot.json', {'schema': 'Meridian-feasibility-02', 'phase': 'boot', 'identity': identity,
                                    'productionIO': None, 'productionPrivacy': None,
                                    'status': 'STARTED_NOT_ACCEPTED'})
               affinity = inventory()
-              try:
-                  # Only delegated cgroup-v2 at root; no sudo, systemd or namespace fallback.
-                  require(observed('/proc/self/cgroup') == '0::/\n', 'CGROUP_LAYOUT_UNSUPPORTED')
-                  parent = Path('/sys/fs/cgroup')
-                  cgroup = parent / ('wp004a-probe-' + run)
-                  cgroup.mkdir()
-                  for field, value in [('memory.max', '67108864'), ('pids.max', '16'), ('cpu.max', '100000 100000')]:
-                      (cgroup / field).write_text(value, encoding='ascii')
-                      require((cgroup / field).read_text().strip() == value, 'CGROUP_LIMIT_READBACK')
-                  mark('P05', 'CONFIGURED_PENDING_CHILD', {'memoryMax': 67108864, 'pidsMax': 16,
-                                                         'cpuMax': '100000 100000'})
-              except (OSError, RuntimeError) as error:
-                  mark('P05', 'UNSUPPORTED', {'errorType': type(error).__name__, 'enforcedWholeJobCap': None})
-                  if cgroup is not None and cgroup.exists():
-                      cgroup.rmdir()
-                  cgroup = None
-              children = [child_case(1, affinity, 0), child_case(2, affinity, 0)]
-              mark('P04', 'PASS', {'selectedAffinity': affinity, 'children': children})
-              mark('P06', 'PASS', {'closedChildren': children, 'unexpectedDescendants': 'not created by fixed child source'})
-              if cgroup is not None:
-                  mark('P05', 'PASS', {'membershipVerified': True, 'memoryMax': 67108864,
-                                       'cpuMax': '100000 100000', 'pidsMax': 16,
-                                       'OOMStressTest': 'NOT_RUN', 'productionCapProof': False})
-              mark('P07', 'PENDING', {'reason': 'checkpoint must be committed before synthetic failure'})
-              upload('checkpoint.json', {'schema': 'Meridian-feasibility-01', 'phase': 'checkpoint',
-                                         'identity': identity, 'cases': cases, 'priorReceipts': receipts,
-                                         'nextOperation': 'one synthetic child expected exit 7'})
-              failed_child = child_case(3, affinity, 7)
-              mark('P07', 'PASS_PENDING_REMOTE_READBACK', {'expectedPrimary': 'SYNTHETIC_EXIT_7',
-                                                        'child': failed_child, 'checkpointCommit': receipts[-1]['commit'],
-                                                        'actualProductionFailure': False})
+              configured = configure_cgroup()
+              if configured:
+                  children = [child_case(1, affinity, 0), child_case(2, affinity, 0)]
+                  mark('P04', 'PASS', {'selectedAffinity': affinity, 'children': children})
+                  mark('P06', 'PASS', {'closedChildren': children, 'unexpectedDescendants': 'not created by fixed child source'})
+                  if cgroup is not None:
+                      mark('P05', 'PASS', {'configuration': cases['P05']['evidence'], 'membershipVerified': True, 'memoryMax': 67108864,
+                                           'cpuMax': '100000 100000', 'pidsMax': 16,
+                                           'OOMStressTest': 'NOT_RUN', 'productionCapProof': False})
+                  mark('P07', 'PENDING', {'reason': 'checkpoint must be committed before synthetic failure'})
+                  upload('checkpoint.json', {'schema': 'Meridian-feasibility-02', 'phase': 'checkpoint',
+                                             'identity': identity, 'cases': cases, 'priorReceipts': receipts,
+                                             'nextOperation': 'one synthetic child expected exit 7'})
+                  failed_child = child_case(3, affinity, 7)
+                  mark('P07', 'PASS_PENDING_REMOTE_READBACK', {'expectedPrimary': 'SYNTHETIC_EXIT_7',
+                                                            'child': failed_child, 'checkpointCommit': receipts[-1]['commit'],
+                                                            'actualProductionFailure': False})
+              else:
+                  for case in ('P04', 'P06', 'P07'):
+                      mark(case, 'NOT_RUN', {'reason': 'no verified delegated child cgroup; no fallback fixtures'})
+                  upload('checkpoint.json', {'schema': 'Meridian-feasibility-02', 'phase': 'checkpoint',
+                                            'identity': identity, 'cases': cases, 'priorReceipts': receipts,
+                                            'nextOperation': 'seal diagnostic evidence only; no child execution'})
               path = cwd / 'sealed-fixture.txt'
               reserve_write(64)
               with path.open('xb') as stream:
@@ -357,7 +465,7 @@ jobs:
               two = read_small(path)
               require(one == two, 'SEAL_CHANGED')
               mark('P08', 'PASS', {'closedBeforeSeal': True, 'bytes': len(one), 'sha256': sha(one),
-                                   'productionConcurrencyProof': False})
+                                   'rawBase64': base64.b64encode(one).decode('ascii'), 'productionConcurrencyProof': False})
           except Exception as error:
               primary = {'type': type(error).__name__,
                          'code': str(error) if type(error) is RuntimeError else 'LOCAL_OPERATION_FAILED'}
@@ -368,13 +476,16 @@ jobs:
                       child.communicate(timeout=2)
                   except Exception as error:
                       secondary.append({'cleanup': type(error).__name__})
-              if cgroup is not None:
+              if cgroup_owned and cgroup is not None:
                   try:
                       require(not (cgroup / 'cgroup.procs').read_text().strip(), 'CGROUP_NOT_EMPTY')
                       cgroup.rmdir()
                   except Exception as error:
                       secondary.append({'cgroupCleanup': type(error).__name__})
           
+          for case in ('P02', 'P03', 'P04', 'P05', 'P06', 'P07', 'P08'):
+              if case not in cases:
+                  mark(case, 'NOT_RUN', {'reason': 'earlier STOP; inspect primary and secondary'})
           elapsed = time.monotonic() - started
           if elapsed > 60 and primary is None:
               primary = {'type': 'RuntimeError', 'code': 'PAYLOAD_TIME_CAP'}
@@ -388,7 +499,7 @@ jobs:
           status = 'FAILED' if primary or secondary else 'OBSERVED_PARTIAL'
           if not api_failed:
               try:
-                  upload('final.json', {'schema': 'Meridian-feasibility-01', 'phase': 'final',
+                  upload('final.json', {'schema': 'Meridian-feasibility-02', 'phase': 'final',
                                         'identity': identity, 'status': status, 'cases': cases,
                                         'priorReceipts': receipts, 'primary': primary, 'secondary': secondary,
                                         'WP004a': 'NOT_ACCEPTED', 'WP005': 'CLOSED',
