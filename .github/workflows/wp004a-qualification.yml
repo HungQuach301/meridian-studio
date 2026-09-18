@@ -129,6 +129,44 @@ jobs:
           print(json.dumps(record, ensure_ascii=True, separators=(',', ':')))
           '''
           
+          REF_CREATOR = r'''
+          import base64, hashlib, http.client, json, ssl, sys
+          request = json.loads(sys.stdin.buffer.read(120000))
+          payload = request['payload'].encode('ascii')
+          connection = http.client.HTTPSConnection('api.github.com', timeout=8,
+                                                  context=ssl.create_default_context())
+          record = {'status': None, 'headersView': None, 'responseBodyBase64': None,
+                    'responseBodyBytesObserved': 0, 'responseBodySHA256': None,
+                    'bodyComplete': False, 'wireHeaders': None, 'error': None}
+          try:
+              connection.request('POST', request['path'], body=payload, headers={
+                  'Authorization': 'Bearer ' + request['token'],
+                  'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json',
+                  'User-Agent': 'Meridian-WP004a-qualification-04'})
+              response = connection.getresponse()
+              record['status'] = response.status
+              headers = response.getheaders()
+              header_bytes = json.dumps(headers, ensure_ascii=True).encode('ascii')
+              if len(header_bytes) > 32768:
+                  raise RuntimeError('HEADER_CAPTURE_CAP')
+              # This is a parsed header view, not a raw wire-header guarantee.
+              record['headersView'] = headers
+              body = response.read(262145)
+              record['responseBodyBytesObserved'] = len(body)
+              record['responseBodySHA256'] = hashlib.sha256(body).hexdigest()
+              record['responseBodyBase64'] = base64.b64encode(body[:262144]).decode('ascii')
+              record['bodyComplete'] = len(body) <= 262144
+              if len(body) > 262144:
+                  raise RuntimeError('RESPONSE_CAP')
+              if response.status != 201:
+                  raise RuntimeError('HTTP_STATUS_NOT_201')
+          except Exception as error:
+              record['error'] = type(error).__name__ + (':' + str(error) if isinstance(error, RuntimeError) else '')
+          finally:
+              connection.close()
+          print(json.dumps(record, ensure_ascii=True, separators=(',', ':')))
+          '''
+          
           def capture_raw(name,data):
               global log_bytes
               require(len(data)<=1048576,'RECORD_SINGLE_CAP')
@@ -151,6 +189,56 @@ jobs:
               for line in lines:print(line,flush=True)
           
           def capture_record(name,value):capture_raw(name,encode(value))
+          
+          def validate_ref_receipt(result, ref):
+              require(isinstance(result, dict), 'REF_RESULT')
+              require(result.get('error') is None and result.get('status') == 201 and
+                      result.get('bodyComplete') is True, 'REF_CREATE_RESPONSE')
+              require(isinstance(result.get('responseBodyBase64'), str), 'REF_RESPONSE_BODY')
+              api = json.loads(base64.b64decode(result['responseBodyBase64'], validate=True))
+              require(api.get('ref') == ref, 'REF_BINDING')
+              target = api.get('object')
+              require(isinstance(target, dict) and target.get('type') == 'commit' and
+                      target.get('sha') == source, 'REF_SOURCE_BINDING')
+              return api
+          
+          def create_evidence_ref():
+              global api_failed
+              require(not api_failed and not attempted_files and not files and not receipts,
+                      'REF_CREATE_GUARD')
+              api_failed = True
+              require(time.monotonic() - started < 1426, 'REF_CREATE_DEADLINE')
+              ref = 'refs/heads/' + BRANCH
+              payload = encode({'ref': ref, 'sha': source})
+              request = encode({'token': token, 'path': '/repos/' + REPO + '/git/refs',
+                                'payload': payload.decode('ascii')})
+              require(len(request) < 120000, 'REF_REQUEST_CAP')
+              process = subprocess.Popen([sys.executable, '-I', '-c', REF_CREATOR],
+                                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                         stderr=subprocess.PIPE, env=clean, start_new_session=True)
+              try:
+                  stdout, stderr = process.communicate(request, timeout=10)
+              except subprocess.TimeoutExpired:
+                  try:
+                      os.killpg(process.pid, signal.SIGKILL)
+                  except ProcessLookupError:
+                      pass
+                  stdout, stderr = process.communicate(timeout=2)
+                  capture_record('evidence-ref.receipt.json',
+                                 {'status': None, 'error': 'REF_CREATE_TIMEOUT_OUTCOME_UNKNOWN',
+                                  'stdoutBase64': base64.b64encode(stdout[:262144]).decode(),
+                                  'stderrSHA256': sha(stderr),
+                                  'requestPayloadSHA256': sha(payload)})
+                  raise RuntimeError('REF_CREATE_OUTCOME_UNKNOWN')
+              require(process.returncode == 0 and len(stdout) <= 524288 and len(stderr) <= 8192,
+                      'REF_CREATOR_PROCESS')
+              result = json.loads(stdout)
+              capture_record('evidence-ref.receipt.json', result)
+              api = validate_ref_receipt(result, ref)
+              receipt = {'ref': ref, 'source': source, 'status': 201,
+                         'responseBodySHA256': result['responseBodySHA256']}
+              print('QV_REF ' + encode(receipt).decode('ascii').strip(), flush=True)
+              api_failed = False
           
           def upload(name, document):
               global api_failed
@@ -683,6 +771,7 @@ jobs:
           
           try:
               phase='source-admission';doc=stage_capsule();source_guard()
+              create_evidence_ref()
               upload('boot.json',build_document('boot.json','PENDING_RUNTIME',{'sources':source_entries}))
               phase='runtime';node,npm_cli=qualify_runtime()
               upload('runtime.json',build_document('runtime.json','RUNTIME_QUALIFIED'))
